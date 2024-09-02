@@ -6,7 +6,7 @@ ARG NODE_VERSION=20.10.0
 
 # Dependencies
 RUN apt update \
-  && apt upgrade \
+  && apt upgrade -y \
   && apt install -y bash curl git build-essential inotify-tools
 
 # NodeJS
