@@ -4,6 +4,7 @@
   "service": "app",
   "workspaceFolder": "/workspace",
   "forwardPorts": [4000],
+  "postStartCommand": ". .devcontainer/bootstrap.sh",
   "shutdownAction": "stopCompose",
 
   "customizations": {
