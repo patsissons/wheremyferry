@@ -18,6 +18,7 @@ defmodule AppWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    get "/ferries", PageController, :ferries
   end
 
   # Other scopes may use custom stacks.

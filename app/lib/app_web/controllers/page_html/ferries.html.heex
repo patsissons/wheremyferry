@@ -1,0 +1,13 @@
+<.flash_group flash={@flash} />
+<div>
+  <%= if Enum.any?(@routes) do %>
+    <h1>Ferry routes</h1>
+    <ul>
+      <%= for route <- @routes do %>
+        <li><code><%= route.routeCode %></code> → <code><%= route.sailingDuration %></code> (<code><%= Enum.count(route.sailings) %></code> sailings)</li>
+      <% end %>
+    </ul>
+  <% else %>
+    <h1>No ferry routes found</h1>
+  <% end %>
+</div>
