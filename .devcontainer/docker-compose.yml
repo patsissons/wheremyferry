@@ -20,6 +20,7 @@ services:
 
       # This lets you avoid setting up Git again in the container
       - ~/.gitconfig:/root/.gitconfig
+      - ~/.gitconfig.local:/root/.gitconfig.local
     depends_on:
       - db
 
