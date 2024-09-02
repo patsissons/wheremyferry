@@ -12,11 +12,11 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      # Mounts the project folder to '/workspace'. The target path inside the container
-      # should match should match what your application expects. In this case, the
-      # compose file is in a sub-folder, so we will mount '..'. We'll then reference this
-      # as the workspaceFolder in '.devcontainer/devcontainer.json' so VS Code starts here.
+      # where the app is running from, see Dockerfile for the container path usage
       - ../app:/app:cached
+
+      # where VSCode mounts the workspace, see workspaceFolder in .devcontainer/devcontainer.json
+      - ..:/workspace:cached
 
       # This lets you avoid setting up Git again in the container
       - ~/.gitconfig:/root/.gitconfig

@@ -2,7 +2,7 @@
   "name": "Docker Phoenix",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
-  "workspaceFolder": "/app",
+  "workspaceFolder": "/workspace",
   "forwardPorts": [4000],
   "shutdownAction": "stopCompose",
 
