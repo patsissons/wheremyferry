@@ -7,7 +7,7 @@ ARG NODE_VERSION=20.10.0
 # Dependencies
 RUN apt update \
   && apt upgrade -y \
-  && apt install -y bash curl git build-essential inotify-tools
+  && apt install -y bash curl git build-essential inotify-tools vim
 
 # NodeJS
 ENV NVM_DIR /opt/nvm
