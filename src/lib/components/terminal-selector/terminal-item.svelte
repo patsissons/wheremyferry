@@ -21,7 +21,7 @@
 </script>
 
 <li
-  class="outline-link outline-2 -outline-offset-2 first-of-type:rounded-t-lg last-of-type:rounded-b-lg focus-within:outline"
+  class="outline-2 -outline-offset-2 outline-link first-of-type:rounded-t-lg last-of-type:rounded-b-lg focus-within:outline"
 >
   <button
     class="w-full p-2 text-left outline-none transition-all enabled:hover:bg-muted-foreground/30"

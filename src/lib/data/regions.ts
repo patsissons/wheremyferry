@@ -9,4 +9,5 @@ export const regions: Partial<Record<string, StaticRegionData>> = {
   'Sunshine Coast': { order: 7 },
   'Bowen Island': { order: 6 },
   'Salt Spring Island': { order: 5 },
+  Other: { order: -1 },
 };

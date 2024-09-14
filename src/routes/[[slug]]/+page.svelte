@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { poll, type Route, type Data } from '$lib/client';
+  import { page } from '$app/stores';
+  import { poll, type Data } from '$lib/client';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
   import TerminalSailings from '$lib/components/terminal-sailings/terminal-sailings.svelte';
   import PeriodicRefresh from '$lib/components/periodic-refresh.svelte';
@@ -8,11 +9,19 @@
   import { isDev } from '$lib/env';
 
   let data: Data | undefined;
-  let selectedRoute: Route;
+
+  $: slug = $page.params.slug;
+  $: selectedRoute = loadRouteFromSlug(data, slug);
 
   onMount(() => {
     return poll(updated);
   });
+
+  function loadRouteFromSlug(data?: Data, slug?: string) {
+    if (!data || !slug) return;
+
+    return data.routes.get(slug);
+  }
 
   function updated(update: Data) {
     data = update;
@@ -22,22 +31,16 @@
 
 <main class="container mx-auto grid h-full grid-rows-[auto,1fr,auto] gap-4">
   {#if data}
-    <TerminalHeader {data} bind:selectedRoute />
+    <TerminalHeader {data} {selectedRoute} />
     {#if selectedRoute}
-      <TerminalSailings
-        sailings={selectedRoute.sailings}
-        duration={selectedRoute.duration}
-        timestamp={data.timestamp}
-      />
+      <TerminalSailings route={selectedRoute} timestamp={data.timestamp} />
       {#if data.timestamp}
-        <div class="grid place-content-center">
-          <p
-            class="rounded-md bg-muted px-2 py-1 text-xs italic leading-none text-muted-foreground"
-          >
+        <div class="w-full max-w-md justify-self-center rounded-md bg-muted px-2 py-1">
+          <p class="text-center text-xs italic leading-none text-muted-foreground">
             <PeriodicRefresh>
               <svelte:fragment let:now>
                 {@const elapsed = formatElapsed((now - data.timestamp.getTime()) / 1000)}
-                Last updated <code class="font-medium">{elapsed.value}</code>
+                updated <code class="font-medium">{elapsed.value}</code>
                 {#if elapsed.unit}
                   {elapsed.unit} ago
                 {/if}
