@@ -1,12 +1,14 @@
 <script lang="ts">
   import ChevronDownIcon from '~icons/ion/chevron-down';
   import SwapVerticalIcon from '~icons/ion/swap-vertical';
+  import { goto } from '$app/navigation';
   import { TerminalSelector } from '$lib/components/terminal-selector';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Drawer from '$lib/components/ui/drawer';
   import type { Data, Route, Terminal } from '$lib/client';
   import { terminals } from '$lib/data/terminals';
-  import { formatDuration } from '$lib/utils';
+  import { formatDuration, seasonalSailingsUrl } from '$lib/utils';
+  import Link from './link.svelte';
 
   export let data: Data;
   export let selectedRoute: Route | undefined = undefined;
@@ -18,9 +20,42 @@
   let openMode: OpenMode;
 
   $: canSwap = canSwapTerminals(selectedFrom, selectedTo);
-  $: if (selectedFrom && selectedTo) {
-    const id = [selectedFrom.id, selectedTo.id].join('');
-    selectedRoute = data.routes.get(id);
+  $: updateUrl(selectedFrom, selectedTo);
+  $: if (selectedRoute) {
+    selectedFrom = data.terminals.get(selectedRoute.from);
+    selectedTo = data.terminals.get(selectedRoute.to);
+  }
+
+  function updateUrl(selectedFrom?: Terminal, selectedTo?: Terminal) {
+    if (selectedFrom && selectedTo) {
+      goto(`/${selectedFrom.id}${selectedTo.id}`);
+    } else {
+      goto('/');
+    }
+  }
+
+  function terminalRegions(selectedFrom?: Terminal, selectedTo?: Terminal) {
+    const from = terminalRegion(selectedFrom);
+    const to = terminalRegion(selectedTo);
+
+    let fromText = from.region;
+    let toText = to.region;
+
+    if (from.region && to.region && from.region === to.region) {
+      fromText = from.id ?? from.region;
+      toText = to.id ?? to.region;
+    }
+
+    return `${fromText ?? '…'} → ${toText ?? '…'}`;
+
+    function terminalRegion(terminal?: Terminal) {
+      if (!terminal) return {};
+
+      const staticTerminal = terminals[terminal.id];
+      if (staticTerminal?.region) return { region: staticTerminal.region, id: terminal.id };
+
+      return { region: terminal.title };
+    }
   }
 
   function canSwapTerminals(selectedFrom?: Terminal, selectedTo?: Terminal) {
@@ -47,10 +82,20 @@
   function closeDrawer(terminal: Terminal) {
     switch (openMode) {
       case 'from':
-        selectedFrom = terminal;
+        {
+          selectedFrom = terminal;
+          if (selectedTo && !terminal.destinations.has(selectedTo.id)) {
+            selectedTo = undefined;
+          }
+        }
         break;
       case 'to':
-        selectedTo = terminal;
+        {
+          selectedTo = terminal;
+          if (selectedFrom && !terminal.destinations.has(selectedFrom.id)) {
+            selectedFrom = undefined;
+          }
+        }
         break;
     }
     openMode = undefined;
@@ -62,7 +107,7 @@
     <Drawer.Root open={openMode === 'from'}>
       <Drawer.Trigger asChild let:builder>
         <Button
-          class="text-highlight hover:text-highlight flex items-center gap-1 text-xl sm:text-2xl"
+          class="flex items-center gap-1 text-xl text-highlight hover:text-highlight sm:text-2xl"
           builders={[builder]}
           variant="ghost"
           on:click={openFrom}
@@ -93,7 +138,7 @@
     <Drawer.Root open={openMode === 'to'}>
       <Drawer.Trigger asChild let:builder>
         <Button
-          class="text-highlight hover:text-highlight flex items-center gap-1 text-xl sm:text-2xl"
+          class="flex items-center gap-1 text-xl text-highlight hover:text-highlight sm:text-2xl"
           builders={[builder]}
           variant="ghost"
           on:click={openTo}
@@ -118,7 +163,7 @@
     </Drawer.Root>
 
     <Button
-      class="text-highlight hover:text-highlight aspect-square rounded-full p-1"
+      class="aspect-square rounded-full p-1 text-highlight hover:text-highlight"
       variant="ghost"
       disabled={!canSwap}
       on:click={swapTerminals}
@@ -128,14 +173,19 @@
   </div>
 
   {#if selectedFrom || selectedTo}
-    {@const fromRegion = selectedFrom && terminals[selectedFrom.id]?.region}
-    {@const toRegion = selectedTo && terminals[selectedTo?.id]?.region}
-    <div class="text-highlight px-4">
-      <span>
-        {fromRegion ?? selectedFrom?.title ?? '…'} → {toRegion ?? selectedTo?.title ?? '…'}
-      </span>
-      {#if selectedRoute}
-        <span class="text-highlight/70">({formatDuration(selectedRoute.duration)})</span>
+    {@const crossing = terminalRegions(selectedFrom, selectedTo)}
+    <div class="px-4 text-highlight">
+      {#if selectedFrom && selectedTo}
+        <Link href={seasonalSailingsUrl(selectedFrom.id, selectedTo.id)}>
+          {crossing}
+        </Link>
+      {:else}
+        <span>
+          {crossing}
+        </span>
+      {/if}
+      {#if selectedRoute?.duration}
+        <span class="text-highlight/70">— {formatDuration(selectedRoute.duration)}</span>
       {/if}
     </div>
   {/if}

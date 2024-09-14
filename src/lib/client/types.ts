@@ -1,5 +1,6 @@
 import type { StaticTerminalData } from '$lib/data/terminals';
 import type { StaticRegionData } from '$lib/data/regions';
+import type { StaticVesselData } from '$lib/data/vessels';
 
 export interface SailingData {
   /**
@@ -67,6 +68,14 @@ export interface RouteData {
   sailings: AnySailingData[];
 }
 
+export interface Vessel extends Partial<StaticVesselData> {
+  name: string;
+  /**
+   * seems to always be undefined
+   */
+  status?: string;
+}
+
 export type SailingStatus = 'past' | 'current' | 'future';
 
 export interface Sailing {
@@ -81,11 +90,7 @@ export interface Sailing {
   /**
    * seems to always undefined for noncapacity sailings
    */
-  vessel?: string;
-  /**
-   * seems to always be undefined
-   */
-  vesselStatus?: string;
+  vessel?: Vessel;
   /**
    * will be undefined if we don't have a Date for depart and arrive
    */
@@ -141,6 +146,7 @@ export interface Region extends StaticRegionData {
 export interface Terminal extends StaticTerminalData {
   id: string;
   destinations: Set<string>;
+  region: string;
 }
 
 export interface Data {

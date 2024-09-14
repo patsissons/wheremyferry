@@ -1,36 +1,51 @@
 <script lang="ts">
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
-  import { calcSince, formatDuration, formatTime, formatTimestamp } from '$lib/utils';
+  import {
+    calcSince,
+    formatDuration,
+    formatTime,
+    formatTimestamp,
+    vesselFinderUrl,
+  } from '$lib/utils';
+  import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
+  import * as Accordion from '../ui/accordion';
+  import Progress from '../ui/progress/progress.svelte';
   import SailingFill from './sailing-fill.svelte';
 
   export let sailing: AnySailing;
   export let duration: number;
   export let timestamp: Date;
 
-  let expanded = false;
-
-  $: departElapsed = Boolean(sailing.depart && !(sailing.arrive instanceof Date));
+  $: value = typeof sailing.depart === 'string' ? sailing.depart : sailing.depart.toISOString();
   $: vessel = 'vessel' in sailing ? sailing.vessel : undefined;
 
-  function calcElapsed(sailing: Sailing, duration: number) {
-    if (sailing.arrive instanceof Date) {
-      return {
-        ...calcSince(sailing.arrive),
-        overunder:
-          sailing.depart instanceof Date
-            ? (sailing.arrive.getTime() - sailing.depart.getTime()) / 1000 - duration
-            : undefined,
-      };
-    }
+  function calcProgress(depart: Date, arrive: Date | string | undefined, duration: number) {
+    const now = Date.now();
+    const departTime = depart.getTime();
+    if (now < departTime) return 0;
 
-    if (sailing.depart instanceof Date) {
-      return {
-        ...calcSince(sailing.depart),
-        overunder: undefined,
-      };
+    const durationMs = duration * 1000;
+
+    if (arrive instanceof Date) {
+      const arriveTime = arrive.getTime();
+      if (now >= arriveTime) {
+        // if it's long since arrived we don't need to show full progress
+        if (now - arriveTime > durationMs) return 0;
+        return 1;
+      }
+
+      return (now - departTime) / (arriveTime - departTime);
+    } else if (duration > 0) {
+      return Math.max(0, Math.min(1, (now - departTime) / durationMs));
     }
+  }
+
+  function calcOverUnder({ depart, arrive }: Sailing, duration: number) {
+    if (!(depart instanceof Date) || !(arrive instanceof Date)) return;
+
+    return (arrive.getTime() - depart.getTime()) / 1000 - duration;
   }
 
   function formatSailingTime(time: Date | string) {
@@ -40,86 +55,123 @@
   }
 
   function handleClick() {
-    console.log('clicked', sailing);
-    expanded = !expanded;
+    console.log('expanded sailing', sailing);
   }
 </script>
 
-<li>
-  <button
-    class="flex w-full flex-col gap-1 rounded-lg bg-muted px-4 py-2 transition-all hover:bg-muted-foreground/30"
-    type="button"
-    on:click={handleClick}
-  >
-    <div class="flex w-full flex-col gap-4">
-      <div class="flex w-full flex-col items-start gap-1">
-        <div class="grid w-full grid-cols-[1fr,auto,1fr] items-center gap-4 leading-none">
-          <h3 class="justify-self-start text-2xl font-bold leading-none">
-            {formatSailingTime(sailing.depart)}
-          </h3>
-          <span class="text-2xl leading-none">→</span>
-          <h3 class="justify-self-end text-2xl font-bold leading-none">
-            {#if sailing.arrive}
-              {formatSailingTime(sailing.arrive)}
-            {:else if 'fill' in sailing}
-              <SailingFill fill={sailing.fill} />
-            {/if}
-          </h3>
-        </div>
-        <p
-          class="text-xs italic leading-none text-muted-foreground"
-          class:self-end={!departElapsed}
-        >
-          {#if vessel}
-            <span>on {vessel},</span>
+<Accordion.Item
+  {value}
+  class="gap-4 rounded-lg border border-muted-foreground bg-muted px-4 py-2 transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30"
+>
+  <Accordion.Trigger on:click={handleClick}>
+    <div class="flex w-full flex-col items-start gap-1">
+      <div class="grid w-full grid-cols-[1fr,auto,1fr] items-center gap-4 leading-none">
+        <h3 class="justify-self-start text-2xl font-bold leading-none">
+          {formatSailingTime(sailing.depart)}
+        </h3>
+        <span class="text-2xl leading-none">→</span>
+        <h3 class="justify-self-end text-2xl font-bold leading-none">
+          {#if sailing.arrive}
+            {formatSailingTime(sailing.arrive)}
+          {:else if 'fill' in sailing}
+            <SailingFill fill={sailing.fill} />
           {/if}
-          <PeriodicRefresh interval={60_000}>
-            {@const elapsed = calcElapsed(sailing, duration)}
-            {#if elapsed}
+        </h3>
+      </div>
+
+      <div
+        class="grid w-full grid-cols-[1fr,auto,1fr] items-center gap-1 text-xs text-muted-foreground"
+      >
+        <span class="justify-self-start text-left">
+          {#if sailing.depart instanceof Date}
+            <PeriodicRefresh>
+              {@const elapsed = calcSince(sailing.depart)}
               {#if elapsed.value < 0}
                 in
               {/if}
-              <code class="font-medium">{Math.abs(elapsed.value)}</code>
-              {#if elapsed.unit}
-                {elapsed.unit}
-              {/if}
+              <code class="font-medium">
+                {Math.abs(elapsed.value)}{elapsed.unit ? elapsed.unit.slice(0, 1) : ''}
+              </code>
               {#if elapsed.value > 0}
                 ago
               {/if}
-              {#if elapsed.overunder}
+            </PeriodicRefresh>
+          {/if}
+        </span>
+        <span class="justify-self-center text-center">
+          {#if vessel}
+            on
+            {#if vessel.id}
+              <Link href={vesselFinderUrl(vessel.id)} external>{vessel.name}</Link>
+            {:else}
+              {vessel.name}
+            {/if}
+          {/if}
+        </span>
+        <span class="justify-self-end text-right">
+          {#if sailing.arrive instanceof Date}
+            <PeriodicRefresh>
+              {@const elapsed = calcSince(sailing.arrive)}
+              {@const overunder = calcOverUnder(sailing, duration)}
+              {#if elapsed.value < 0}
+                in
+              {/if}
+              {Math.abs(elapsed.value)}{elapsed.unit ? elapsed.unit.slice(0, 1) : ''}
+              {#if elapsed.value > 0}
+                ago
+              {/if}
+              {#if overunder}
                 <span
-                  class:text-success={elapsed.overunder < 0}
-                  class:text-failure={elapsed.overunder > 0}
+                  class="font-mono"
+                  class:text-success={overunder < 0}
+                  class:text-failure={overunder > 0}
                 >
-                  ({`${elapsed.overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(elapsed.overunder))}`})
+                  ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
                 </span>
               {/if}
-            {/if}
-          </PeriodicRefresh>
-        </p>
+            </PeriodicRefresh>
+          {/if}
+        </span>
       </div>
-      <div class="flex flex-col gap-2 transition-all" class:hidden={!expanded}>
-        {#if !sailing.arrive && 'fill' in sailing}
-          <div class="grid grid-cols-2 grid-rows-2">
-            <SailingFill fill={sailing.carFill} />
-            <SailingFill fill={sailing.oversizeFill} />
-            <span class="text-md">Standard</span>
-            <span class="text-md">Overflow</span>
-          </div>
-        {/if}
-        <p class="text-xs italic text-muted-foreground">
-          Data was updated at
-          <span class="font-mono">{formatTimestamp(timestamp)}</span>
-        </p>
-        {#if isDev}
-          <div class="dark text-primary">
-            <pre
-              class="whitespace-pre-wrap rounded-md bg-neutral-800 px-4 py-2 text-left text-neutral-200"><code
-                >{JSON.stringify({ sailing, duration }, null, 2)}</code
-              ></pre>
-          </div>
-        {/if}
-      </div>
+
+      {#if sailing.depart instanceof Date}
+        <PeriodicRefresh>
+          {@const progress = calcProgress(sailing.depart, sailing.arrive, duration)}
+          {#if progress}
+            <div class="grid w-full">
+              <Progress class="bg-muted-foreground" max={1} value={progress}>
+                <span class="text-xs text-primary-foreground dark:text-primary">
+                  {(progress * 100).toFixed(2)}%
+                </span>
+              </Progress>
+            </div>
+          {/if}
+        </PeriodicRefresh>
+      {/if}
     </div>
-  </button>
-</li>
+  </Accordion.Trigger>
+  <Accordion.Content>
+    <div class="flex flex-col gap-2 transition-all">
+      {#if !sailing.arrive && 'fill' in sailing && sailing.fill > 0 && (sailing.carFill > 0 || sailing.oversizeFill > 0)}
+        <div class="grid grid-cols-2 grid-rows-2 place-items-center">
+          <SailingFill fill={sailing.carFill} />
+          <SailingFill fill={sailing.oversizeFill} />
+          <span class="text-md">Standard</span>
+          <span class="text-md">Overflow</span>
+        </div>
+      {/if}
+      <p class="text-center text-xs italic text-muted-foreground">
+        Data was updated at
+        <span class="font-mono">{formatTimestamp(timestamp)}</span>
+      </p>
+      {#if isDev}
+        <div class="dark text-primary">
+          <pre
+            class="whitespace-pre-wrap rounded-md bg-neutral-800 px-4 py-2 text-left text-neutral-200"><code
+              >{JSON.stringify({ sailing, duration }, null, 2)}</code
+            ></pre>
+        </div>
+      {/if}
+    </div>
+  </Accordion.Content>
+</Accordion.Item>

@@ -112,3 +112,11 @@ export function calcSince(time: Date) {
   const elapsed = Math.floor(Date.now() - time.getTime()) / 1000;
   return calcElapsed(elapsed);
 }
+
+export function seasonalSailingsUrl(from: string, to: string) {
+  return `https://www.bcferries.com/routes-fares/schedules/seasonal/${from}-${to}`;
+}
+
+export function vesselFinderUrl(id: number) {
+  return `https://www.vesselfinder.com/vessels/details/${id}`;
+}

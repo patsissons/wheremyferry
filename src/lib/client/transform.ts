@@ -10,7 +10,9 @@ import type {
   Sailing,
   SailingStatus,
   Terminal,
+  Vessel,
 } from './types';
+import { vessels } from '$lib/data/vessels';
 
 export function groupByRegion(terminals: Terminal[]) {
   return terminals.reduce((map, terminal) => {
@@ -97,9 +99,13 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
       };
     }
 
+    const { title, destinationTitle = title, region = 'Other' } = terminal;
+
     return {
-      ...terminal,
       id,
+      title,
+      destinationTitle,
+      region,
     };
   }
 
@@ -150,11 +156,12 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
         }
       }
 
+      const vessel: Vessel = { ...vessels[vesselName], name: vesselName, status: vesselStatus };
+
       const sailing = {
         depart,
         arrive,
-        vessel: vesselName,
-        vesselStatus,
+        vessel,
       };
 
       if ('sailingStatus' in sailingData) {
