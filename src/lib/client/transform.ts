@@ -115,20 +115,23 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
       from: routeData.fromTerminalCode,
       to: routeData.toTerminalCode,
       duration: parseDuration(routeData.sailingDuration),
-      sailings: routeData.sailings.reduce(
-        (array, sailingData) =>
-          array.concat(transformSailing(sailingData, timestamp, array.at(-1))),
-        [] as Sailing[],
-      ),
+      sailings: routeData.sailings.reduce((array, sailingData) => {
+        const sailing = transformSailing(sailingData, timestamp, array.at(-1));
+        return sailing ? array.concat(sailing) : array;
+      }, [] as Sailing[]),
     };
 
     function transformSailing(
       { time, arrivalTime, vesselName, vesselStatus, ...sailingData }: AnySailingData,
       timestamp: Date,
       previousSailing?: Sailing,
-    ): Sailing {
+    ): Sailing | undefined {
       const depart = parseTime(time);
       const arrive = parseTime(arrivalTime);
+      // if we can't parse either time, or if the vessel name is missing then we
+      // will ignore this sailing. it could be bad in general or it could be
+      // temporarily bad and will be fixed in the next fetch.
+      if ((!depart && !arrive) || !vesselName) return;
 
       if (previousSailing) {
         if (depart instanceof Date && previousSailing.depart instanceof Date) {
