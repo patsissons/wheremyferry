@@ -40,9 +40,15 @@
             <PeriodicRefresh>
               <svelte:fragment let:now>
                 {@const elapsed = formatElapsed((now - data.timestamp.getTime()) / 1000)}
-                updated <code class="font-medium">{elapsed.value}</code>
+                updated
+                {#if elapsed.value}
+                  <code class="font-medium">{elapsed.value}</code>
+                {/if}
                 {#if elapsed.unit}
-                  {elapsed.unit} ago
+                  {elapsed.unit}
+                {/if}
+                {#if elapsed.value}
+                  ago
                 {/if}
                 ({formatTimestamp(data.timestamp)})
               </svelte:fragment>

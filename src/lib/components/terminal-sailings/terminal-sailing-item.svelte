@@ -1,17 +1,12 @@
 <script lang="ts">
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
-  import {
-    calcSince,
-    formatDuration,
-    formatTime,
-    formatTimestamp,
-    vesselFinderUrl,
-  } from '$lib/utils';
+  import { formatDuration, formatTime, formatTimestamp, vesselFinderUrl } from '$lib/utils';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
   import * as Accordion from '../ui/accordion';
   import Progress from '../ui/progress/progress.svelte';
+  import SailingElapsed from './sailing-elapsed.svelte';
   import SailingFill from './sailing-fill.svelte';
 
   export let sailing: AnySailing;
@@ -83,20 +78,7 @@
         class="grid w-full grid-cols-[1fr,auto,1fr] items-center gap-1 text-xs text-muted-foreground"
       >
         <span class="justify-self-start text-left">
-          {#if sailing.depart instanceof Date}
-            <PeriodicRefresh>
-              {@const elapsed = calcSince(sailing.depart)}
-              {#if elapsed.value < 0}
-                in
-              {/if}
-              <code class="font-medium">
-                {Math.abs(elapsed.value)}{elapsed.unit ? elapsed.unit.slice(0, 1) : ''}
-              </code>
-              {#if elapsed.value > 0}
-                ago
-              {/if}
-            </PeriodicRefresh>
-          {/if}
+          <SailingElapsed timestamp={sailing.depart} />
         </span>
         <span class="justify-self-center text-center">
           {#if vessel}
@@ -109,28 +91,18 @@
           {/if}
         </span>
         <span class="justify-self-end text-right">
-          {#if sailing.arrive instanceof Date}
-            <PeriodicRefresh>
-              {@const elapsed = calcSince(sailing.arrive)}
-              {@const overunder = calcOverUnder(sailing, duration)}
-              {#if elapsed.value < 0}
-                in
-              {/if}
-              {Math.abs(elapsed.value)}{elapsed.unit ? elapsed.unit.slice(0, 1) : ''}
-              {#if elapsed.value > 0}
-                ago
-              {/if}
-              {#if overunder}
-                <span
-                  class="font-mono"
-                  class:text-success={overunder < 0}
-                  class:text-failure={overunder > 0}
-                >
-                  ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
-                </span>
-              {/if}
-            </PeriodicRefresh>
-          {/if}
+          <SailingElapsed timestamp={sailing.arrive}>
+            {@const overunder = calcOverUnder(sailing, duration)}
+            {#if overunder}
+              <span
+                class="font-mono"
+                class:text-success={overunder < 0}
+                class:text-failure={overunder > 0}
+              >
+                ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
+              </span>
+            {/if}
+          </SailingElapsed>
         </span>
       </div>
 

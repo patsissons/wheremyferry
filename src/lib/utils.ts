@@ -84,7 +84,7 @@ export function formatDuration(duration: number) {
 export function formatElapsed(elapsed: number) {
   const { value, unit } = calcElapsed(elapsed);
 
-  if (value === 0) return { value: 'just now' };
+  if (value === 0) return { unit };
 
   return { value: value.toFixed(), unit };
 }
@@ -92,7 +92,7 @@ export function formatElapsed(elapsed: number) {
 export function calcElapsed(elapsed: number, min = 5) {
   const abs = Math.floor(Math.abs(elapsed));
   if (abs < min) {
-    return { value: 0 };
+    return { value: 0, unit: 'just now' };
   }
 
   let value = Math.floor(elapsed),
