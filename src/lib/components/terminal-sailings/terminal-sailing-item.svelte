@@ -56,61 +56,71 @@
 
 <Accordion.Item
   {value}
-  class="gap-4 rounded-lg border border-muted-foreground bg-muted px-4 py-2 transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30"
+  class="gap-4 rounded-lg border border-muted-foreground bg-muted transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30"
 >
-  <Accordion.Trigger on:click={handleClick}>
-    <div class="flex w-full flex-col items-start gap-1">
-      <div class="grid w-full grid-cols-[1fr,auto,1fr] items-center gap-4 leading-none">
-        <h3 class="justify-self-start text-2xl font-bold leading-none">
-          {formatSailingTime(sailing.depart)}
-        </h3>
-        <span class="text-2xl leading-none">→</span>
-        <h3 class="justify-self-end text-2xl font-bold leading-none">
-          {#if sailing.arrive}
-            {formatSailingTime(sailing.arrive)}
-          {:else if 'fill' in sailing}
-            <SailingFill fill={sailing.fill} />
-          {/if}
-        </h3>
+  <Accordion.Trigger class="px-4 py-2" on:click={handleClick}>
+    <div class="flex w-full flex-col gap-1">
+      <div class="grid grid-cols-[1fr,auto,1fr] items-center leading-none">
+        <div class="justify-self-start whitespace-nowrap text-2xl font-bold leading-none">
+          <h3>
+            {formatSailingTime(sailing.depart)}
+          </h3>
+        </div>
+        <div class="text-2xl leading-none">
+          <span>→</span>
+        </div>
+        <div class="justify-self-end whitespace-nowrap text-2xl font-bold leading-none">
+          <h3>
+            {#if sailing.arrive}
+              {formatSailingTime(sailing.arrive)}
+            {:else if 'fill' in sailing}
+              <SailingFill fill={sailing.fill} />
+            {/if}
+          </h3>
+        </div>
       </div>
 
-      <div
-        class="grid w-full grid-cols-[1fr,auto,1fr] items-center gap-1 text-xs text-muted-foreground"
-      >
-        <span class="justify-self-start text-left">
-          <SailingElapsed timestamp={sailing.depart} />
-        </span>
-        <span class="justify-self-center text-center">
-          {#if vessel}
-            on
-            {#if vessel.id}
-              <Link href={vesselFinderUrl(vessel.id)} external>{vessel.name}</Link>
-            {:else}
-              {vessel.name}
+      <div class="grid grid-cols-[1fr,auto,1fr] items-center gap-1 text-xs text-muted-foreground">
+        <div class="self-start justify-self-start text-left">
+          <span>
+            <SailingElapsed timestamp={sailing.depart} />
+          </span>
+        </div>
+        <div class="self-start justify-self-center text-center">
+          <span>
+            {#if vessel}
+              on
+              {#if vessel.id}
+                <Link href={vesselFinderUrl(vessel.id)} external>{vessel.name}</Link>
+              {:else}
+                {vessel.name}
+              {/if}
             {/if}
-          {/if}
-        </span>
-        <span class="justify-self-end text-right">
-          <SailingElapsed timestamp={sailing.arrive}>
-            {@const overunder = calcOverUnder(sailing, duration)}
-            {#if overunder}
-              <span
-                class="font-mono"
-                class:text-success={overunder < 0}
-                class:text-failure={overunder > 0}
-              >
-                ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
-              </span>
-            {/if}
-          </SailingElapsed>
-        </span>
+          </span>
+        </div>
+        <div class="self-start justify-self-end text-right">
+          <div class="flex flex-wrap justify-end gap-1 text-right">
+            <SailingElapsed timestamp={sailing.arrive}>
+              {@const overunder = calcOverUnder(sailing, duration)}
+              {#if overunder}
+                <span
+                  class="whitespace-nowrap font-mono"
+                  class:text-success={overunder < 0}
+                  class:text-failure={overunder > 0}
+                >
+                  ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
+                </span>
+              {/if}
+            </SailingElapsed>
+          </div>
+        </div>
       </div>
 
       {#if sailing.depart instanceof Date}
         <PeriodicRefresh>
           {@const progress = calcProgress(sailing.depart, sailing.arrive, duration)}
           {#if progress}
-            <div class="grid w-full">
+            <div class="grid">
               <Progress class="bg-muted-foreground" max={1} value={progress}>
                 <span class="text-xs text-primary-foreground dark:text-primary">
                   {(progress * 100).toFixed(2)}%
