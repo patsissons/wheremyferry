@@ -35,7 +35,7 @@
     {#if selectedRoute}
       <TerminalSailings route={selectedRoute} timestamp={data.timestamp} />
       {#if data.timestamp}
-        <div class="w-full max-w-md justify-self-center rounded-md bg-muted px-2 py-1">
+        <div class="w-full justify-self-center rounded-md bg-muted px-2 py-1">
           <p class="text-center text-xs italic leading-none text-muted-foreground">
             <PeriodicRefresh>
               <svelte:fragment let:now>
