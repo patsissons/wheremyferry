@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
-  import { formatDuration, formatTime, formatTimestamp, vesselFinderUrl } from '$lib/utils';
+  import {
+    currentConditionsUrl,
+    formatDuration,
+    formatTime,
+    formatTimestamp,
+    vesselFinderUrl,
+  } from '$lib/utils';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
   import * as Accordion from '../ui/accordion';
@@ -12,9 +18,23 @@
   export let sailing: AnySailing;
   export let duration: number;
   export let timestamp: Date;
+  export let from: string;
+  export let to: string;
 
   $: value = typeof sailing.depart === 'string' ? sailing.depart : sailing.depart.toISOString();
   $: vessel = 'vessel' in sailing ? sailing.vessel : undefined;
+  $: showDebug = isDev || location.search.includes('debug');
+  $: originalArrive =
+    sailing.scheduledDepart instanceof Date && duration > 0
+      ? new Date(sailing.scheduledDepart.getTime() + duration * 1000)
+      : undefined;
+  $: totalDuration =
+    sailing.status === 'past' &&
+    sailing.scheduledDepart instanceof Date &&
+    sailing.arrive instanceof Date
+      ? Math.trunc((sailing.arrive.getTime() - sailing.scheduledDepart.getTime()) / 1000)
+      : undefined;
+  $: totalDelay = totalDuration && duration > 0 ? totalDuration - duration : undefined;
 
   function calcProgress(depart: Date, arrive: Date | string | undefined, duration: number) {
     const now = Date.now();
@@ -43,6 +63,25 @@
     return (arrive.getTime() - depart.getTime()) / 1000 - duration;
   }
 
+  function calcDepartDelay({ depart, scheduledDepart, status }: Sailing) {
+    if (!(depart instanceof Date) || !(scheduledDepart instanceof Date)) return;
+
+    const now = Date.now();
+    // if the API still says 'future' but the recorded depart is already in
+    // the past, the API is lagging — clamp to now so the displayed delay
+    // keeps growing tick-by-tick until the API catches up.
+    const effective = status === 'future' && depart.getTime() < now ? now : depart.getTime();
+
+    const minutes = Math.trunc((effective - scheduledDepart.getTime()) / 60_000);
+    if (minutes === 0) return;
+    // before the scheduled depart, a positive delta is just a forecast shift,
+    // not a real delay — only surface it once the sailing has actually reached
+    // its scheduled time. negative deltas (leaving early) always surface.
+    if (minutes > 0 && scheduledDepart.getTime() > now) return;
+
+    return minutes * 60;
+  }
+
   function formatSailingTime(time: Date | string) {
     if (time instanceof Date) return formatTime(time);
 
@@ -62,7 +101,7 @@
     <div class="flex w-full flex-col gap-1">
       <div class="grid grid-cols-[1fr,auto,1fr] items-center leading-none">
         <div class="justify-self-start whitespace-nowrap text-2xl font-bold leading-none">
-          <h3>
+          <h3 class:animate-pulse={sailing.status === 'departing'}>
             {formatSailingTime(sailing.depart)}
           </h3>
         </div>
@@ -82,9 +121,28 @@
 
       <div class="grid grid-cols-[1fr,auto,1fr] items-center gap-1 text-xs text-muted-foreground">
         <div class="self-start justify-self-start text-left">
-          <span>
-            <SailingElapsed timestamp={sailing.depart} />
-          </span>
+          <div class="flex flex-wrap gap-1">
+            {#if sailing.status === 'departing'}
+              <span
+                class="whitespace-nowrap rounded bg-failure/20 px-1.5 font-mono uppercase text-failure"
+              >
+                departing
+              </span>
+            {:else}
+              <SailingElapsed timestamp={sailing.depart}>
+                {@const departDelay = calcDepartDelay(sailing)}
+                {#if departDelay}
+                  <span
+                    class="whitespace-nowrap font-mono"
+                    class:text-success={departDelay < 0}
+                    class:text-failure={departDelay > 0}
+                  >
+                    ({`${departDelay > 0 ? '+' : '-'}${formatDuration(Math.abs(departDelay))}`})
+                  </span>
+                {/if}
+              </SailingElapsed>
+            {/if}
+          </div>
         </div>
         <div class="self-start justify-self-center text-center">
           <span>
@@ -116,7 +174,7 @@
         </div>
       </div>
 
-      {#if sailing.depart instanceof Date}
+      {#if sailing.depart instanceof Date && sailing.status === 'current'}
         <PeriodicRefresh>
           {@const progress = calcProgress(sailing.depart, sailing.arrive, duration)}
           {#if progress}
@@ -142,12 +200,46 @@
           <span class="text-md">Overflow</span>
         </div>
       {/if}
+      <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
+        {#if sailing.scheduledDepart instanceof Date}
+          <li>
+            Original departure:
+            <span class="font-mono">{formatSailingTime(sailing.scheduledDepart)}</span>
+          </li>
+        {/if}
+        {#if originalArrive}
+          <li>
+            Original estimated arrival:
+            <span class="font-mono">{formatSailingTime(originalArrive)}</span>
+          </li>
+        {/if}
+        {#if totalDuration}
+          <li>
+            Total duration:
+            <span class="font-mono">{formatDuration(totalDuration)}</span>
+            {#if totalDelay}
+              <span
+                class="font-mono"
+                class:text-success={totalDelay < 0}
+                class:text-failure={totalDelay > 0}
+              >
+                ({`${totalDelay > 0 ? '+' : '-'}${formatDuration(Math.abs(totalDelay))}`})
+              </span>
+            {/if}
+          </li>
+        {/if}
+        <li>
+          <Link href={currentConditionsUrl(from, to)} external>
+            Current conditions for this route
+          </Link>
+        </li>
+      </ul>
       <p class="text-center text-xs italic text-muted-foreground">
         Data was updated at
         <span class="font-mono">{formatTimestamp(timestamp)}</span>
       </p>
-      {#if isDev}
-        <div class="dark text-primary">
+      {#if showDebug}
+        <div class="dark -mb-4 text-primary">
           <pre
             class="whitespace-pre-wrap rounded-md bg-neutral-800 px-4 py-2 text-left text-neutral-200"><code
               >{JSON.stringify({ sailing, duration }, null, 2)}</code

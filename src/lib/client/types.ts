@@ -76,7 +76,7 @@ export interface Vessel extends Partial<StaticVesselData> {
   status?: string;
 }
 
-export type SailingStatus = 'past' | 'current' | 'future';
+export type SailingStatus = 'past' | 'current' | 'future' | 'departing';
 
 export interface Sailing {
   /**
@@ -87,6 +87,11 @@ export interface Sailing {
    * scheduled or actual arrival, can be undefined when no scheduled arrival
    */
   arrive?: Date | string;
+  /**
+   * earliest observed depart for this sailing, populated by the history layer
+   * when a matching stored row exists. used to derive the departure delay.
+   */
+  scheduledDepart?: Date;
   /**
    * seems to always undefined for noncapacity sailings
    */

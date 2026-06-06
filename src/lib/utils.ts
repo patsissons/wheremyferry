@@ -117,6 +117,10 @@ export function seasonalSailingsUrl(from: string, to: string) {
   return `https://www.bcferries.com/routes-fares/schedules/seasonal/${from}-${to}`;
 }
 
+export function currentConditionsUrl(from: string, to: string) {
+  return `https://www.bcferries.com/current-conditions/${from}-${to}`;
+}
+
 export function vesselFinderUrl(id: number) {
   return `https://www.vesselfinder.com/vessels/details/${id}`;
 }

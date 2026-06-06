@@ -1,6 +1,14 @@
 import ky from 'ky';
 import { isDev } from '$lib/env';
 
+import {
+  loadHistory,
+  mergeWithHistory,
+  pruneHistory,
+  saveHistory,
+  upsertFromApi,
+  type HistoryState,
+} from './history';
 import { transformRoutes } from './transform';
 import type { Data, RouteData } from './types';
 import capacityJson from './__mock__/capacity.json';
@@ -85,6 +93,7 @@ interface EndpointState {
 }
 
 export function poll(updated: (data: Data) => void) {
+  let history: HistoryState | undefined;
   const capacity = pollEndpoint('capacity');
   const noncapacity = pollEndpoint('noncapacity');
 
@@ -162,6 +171,13 @@ export function poll(updated: (data: Data) => void) {
 
     if (isDev) console.log('updated', { state, routes });
 
-    updated(transformRoutes(routes, state.timestamp));
+    const apiData = transformRoutes(routes, state.timestamp);
+
+    if (!history) history = loadHistory();
+    history = pruneHistory(history, apiData.timestamp);
+    history = upsertFromApi(history, apiData, apiData.timestamp);
+    saveHistory(history);
+
+    updated(mergeWithHistory(history, apiData, apiData.timestamp));
   }
 }
