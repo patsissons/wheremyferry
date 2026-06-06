@@ -176,7 +176,7 @@
     {@const crossing = terminalRegions(selectedFrom, selectedTo)}
     <div class="px-4 text-highlight">
       {#if selectedFrom && selectedTo}
-        <Link href={seasonalSailingsUrl(selectedFrom.id, selectedTo.id)}>
+        <Link href={seasonalSailingsUrl(selectedFrom.id, selectedTo.id)} external>
           {crossing}
         </Link>
       {:else}
