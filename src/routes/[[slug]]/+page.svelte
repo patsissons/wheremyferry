@@ -10,6 +10,7 @@
     buildScheduledList,
     injectMissingSailings,
     persistScheduleCorrections,
+    type PrevSailingScrapeSource,
   } from '$lib/client/schedule';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
   import TerminalSailings from '$lib/components/terminal-sailings/terminal-sailings.svelte';
@@ -51,14 +52,20 @@
   // Routes map with duration overrides applied for both forward and reverse
   // legs, so prior-sailing lookups on either direction get correct duration.
   $: enrichedRoutes = buildEnrichedRoutes(liveData?.routes, liveRoute, data.reverseDailySchedule);
-  $: scheduledListByRoute = buildScheduledListByRoute(liveRoute, scheduledList, reverseScheduledList);
-  // injectMissingSailings runs after mergeWithHistory, so its synthesized
-  // sailings never got their previousSailings attached during polling. Re-run
-  // the attach pass over the full post-inject list so injected sailings show
-  // the same recent-vessel-history rows as live sailings do.
+  $: scheduledListByRoute = buildScheduledListByRoute(
+    liveRoute,
+    scheduledList,
+    reverseScheduledList,
+  );
+  // scrapemyferry's arrivedUnderway is the primary source for previousSailings.
+  // localStorage history (via attachPreviousSailingsToRoute) is the fallback
+  // for vessels whose recent activity isn't in the current page's conditions
+  // payloads (e.g. they served a totally different route).
+  $: scrapeSources = buildScrapeSources(liveRoute, enrichedRoutes, data);
   $: selectedRoute = attachPreviousSailingsToRoute(
     injectMissingSailings(liveRoute, data.dailySchedule, data.conditions),
     enrichedRoutes,
+    scrapeSources,
     scheduledListByRoute,
   );
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
@@ -105,6 +112,47 @@
     if (forward.length) map.set(route.id, forward);
     if (reverse.length) map.set(`${route.to}${route.from}`, reverse);
     return map.size > 0 ? map : undefined;
+  }
+
+  function buildScrapeSources(
+    route: ReturnType<typeof loadRouteFromSlug>,
+    routes: Map<string, ReturnType<typeof loadRouteFromSlug>> | undefined,
+    data: PageData,
+  ): PrevSailingScrapeSource[] | undefined {
+    if (!route) return;
+    const sources: PrevSailingScrapeSource[] = [];
+    sources.push({
+      routeCode: route.id,
+      from: route.from,
+      to: route.to,
+      duration: route.duration,
+      conditions: data.conditions,
+      dailySchedule: data.dailySchedule,
+    });
+    const reverseId = `${route.to}${route.from}`;
+    const reverse = routes?.get(reverseId);
+    if (reverse) {
+      sources.push({
+        routeCode: reverseId,
+        from: route.to,
+        to: route.from,
+        duration: reverse.duration,
+        conditions: data.arrivalConditions,
+        dailySchedule: data.reverseDailySchedule,
+      });
+    } else {
+      // No live route entry — synthesize one so reverse-leg prior sailings
+      // still flow through with route metadata from scrapemyferry.
+      sources.push({
+        routeCode: reverseId,
+        from: route.to,
+        to: route.from,
+        duration: 0,
+        conditions: data.arrivalConditions,
+        dailySchedule: data.reverseDailySchedule,
+      });
+    }
+    return sources;
   }
 
   function buildLinks(raw: CurrentConditionsBeta['links'] | undefined): SailingLinks | undefined {

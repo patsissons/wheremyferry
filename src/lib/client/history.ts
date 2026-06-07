@@ -1,6 +1,10 @@
 import { isDev } from '$lib/env';
 import { vessels } from '$lib/data/vessels';
 
+import {
+  findPreviousSailingsFromScrape,
+  type PrevSailingScrapeSource,
+} from './schedule';
 import type { Data, PreviousSailing, Route, Sailing, SailingStatus, Vessel } from './types';
 
 const STORAGE_VERSION = 1;
@@ -213,6 +217,22 @@ export function upsertFromApi(state: HistoryState, data: Data, now: Date): Histo
       if (!(sailing.depart instanceof Date)) continue;
 
       const match = findMatch(rows, route.id, sailing.depart, claimed);
+
+      // Only upsert from sailings that haven't departed yet. Once a sailing
+      // is current/past, scrapemyferry's currentConditionsBeta has more
+      // accurate actuals (departed/arrived/vessel) than the BC Ferries JSON
+      // API, and persisting the API's values to localStorage was
+      // contaminating the previousSailings lookup. We still bump lastSeenAt
+      // on existing rows so they don't get pruned out from under us during
+      // the 24h window.
+      if (sailing.status !== 'future') {
+        if (match) {
+          claimed.add(match.scheduledDepart);
+          match.lastSeenAt = nowIso;
+        }
+        continue;
+      }
+
       const departIso = sailing.depart.toISOString();
       const arriveIso = sailing.arrive instanceof Date ? sailing.arrive.toISOString() : undefined;
 
@@ -316,39 +336,63 @@ export function attachPreviousSailings<T extends Sailing>(
 }
 
 /**
- * Re-runs attachPreviousSailings across every sailing in the route. Idempotent
- * for sailings that mergeWithHistory already enriched (live API sailings), so
- * the cost is just lookup work. Needed because injectMissingSailings creates
- * synthesized sailings AFTER mergeWithHistory has run — without this pass
- * those sailings never get their previousSailings attached.
+ * Attach previousSailings to every sailing in the route, preferring
+ * scrapemyferry's authoritative arrivedUnderway data over localStorage
+ * history. localStorage is only consulted as a fallback for vessels that
+ * scrape data doesn't cover (e.g. a vessel that briefly served a route
+ * outside the current page's scope).
  */
 export function attachPreviousSailingsToRoute(
   route: Route | undefined,
   routes: Map<string, Route> | undefined,
+  scrapeSources?: PrevSailingScrapeSource[],
   scheduledListByRoute?: Map<string, Date[]>,
 ): Route | undefined {
   if (!route || !routes) return route;
-  if (typeof localStorage === 'undefined') return route;
-  const state = loadHistory();
-  if (state.sailings.length === 0) return route;
+
+  const hasScrape = !!scrapeSources?.length;
+  const hasLocalStorage = typeof localStorage !== 'undefined';
+  const state = hasLocalStorage ? loadHistory() : undefined;
+  const hasFallback = !!state && state.sailings.length > 0;
+  if (!hasScrape && !hasFallback) return route;
 
   const sailings = route.sailings.map((sailing) => {
-    const enhanced = attachPreviousSailings(sailing, state, routes);
-    if (!enhanced.previousSailings || !scheduledListByRoute?.size) return enhanced;
-    // Override each previous sailing's scheduledDepart with the closest
-    // dailySchedule entry for ITS route (forward or reverse). Stored
-    // scheduledDepart is often contaminated by the API's windowed observation
-    // pattern — if we caught the sailing while a different one with a nearby
-    // scheduled time was the only match candidate, findMatch glued the rows
-    // together and the wrong scheduledDepart stuck.
-    const previousSailings = enhanced.previousSailings.map((prev) => {
-      const scheduledList = scheduledListByRoute.get(prev.routeCode);
-      if (!scheduledList?.length) return prev;
-      const closest = findClosestScheduled(prev.depart, scheduledList);
-      if (!closest) return prev;
-      return { ...prev, scheduledDepart: closest };
-    });
-    return { ...enhanced, previousSailings };
+    const vesselName = sailing.vessel?.name;
+    if (!vesselName) return sailing;
+    if (!(sailing.depart instanceof Date)) return sailing;
+
+    let previousSailings: PreviousSailing[] = [];
+    if (hasScrape) {
+      previousSailings = findPreviousSailingsFromScrape(
+        vesselName,
+        sailing.depart.getTime(),
+        scrapeSources!,
+      );
+    }
+
+    // Fallback to localStorage only when scrape gave us nothing.
+    if (previousSailings.length === 0 && hasFallback) {
+      previousSailings = findPreviousVesselSailings(
+        state!.sailings,
+        vesselName,
+        sailing.depart.getTime(),
+        routes,
+      );
+      // For fallback rows, override scheduledDepart from authoritative
+      // dailySchedule when available — stored value may be contaminated.
+      if (previousSailings.length > 0 && scheduledListByRoute?.size) {
+        previousSailings = previousSailings.map((prev) => {
+          const scheduledList = scheduledListByRoute.get(prev.routeCode);
+          if (!scheduledList?.length) return prev;
+          const closest = findClosestScheduled(prev.depart, scheduledList);
+          if (!closest) return prev;
+          return { ...prev, scheduledDepart: closest };
+        });
+      }
+    }
+
+    if (previousSailings.length === 0) return sailing;
+    return { ...sailing, previousSailings };
   });
   return { ...route, sailings };
 }
@@ -376,15 +420,17 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
 
   for (const [id, route] of data.routes) {
     const matchedScheduled = new Set<string>();
+    // mergeWithHistory only handles scheduledDepart enrichment + transitional
+    // 'departing' injection. previousSailings attachment is deferred to a
+    // page-level pass (attachPreviousSailingsToRoute) so it can prefer
+    // scrapemyferry's authoritative arrivedUnderway data over the
+    // localStorage history.
     const enhanced = route.sailings.map((sailing) => {
       if (!(sailing.depart instanceof Date)) return sailing;
       const match = findMatch(state.sailings, route.id, sailing.depart, matchedScheduled);
-      let next: Sailing = sailing;
-      if (match) {
-        matchedScheduled.add(match.scheduledDepart);
-        next = { ...next, scheduledDepart: parseStoredDate(match.scheduledDepart) };
-      }
-      return attachPreviousSailings(next, state, data.routes);
+      if (!match) return sailing;
+      matchedScheduled.add(match.scheduledDepart);
+      return { ...sailing, scheduledDepart: parseStoredDate(match.scheduledDepart) };
     });
 
     const injected: Sailing[] = [];
@@ -405,19 +451,13 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
         ? { ...vessels[stored.vesselName], name: stored.vesselName }
         : undefined;
 
-      injected.push(
-        attachPreviousSailings(
-          {
-            depart: parseStoredDate(stored.latestDepart),
-            arrive: stored.latestArrive ? parseStoredDate(stored.latestArrive) : undefined,
-            scheduledDepart: parseStoredDate(stored.scheduledDepart),
-            vessel,
-            status: 'departing',
-          },
-          state,
-          data.routes,
-        ),
-      );
+      injected.push({
+        depart: parseStoredDate(stored.latestDepart),
+        arrive: stored.latestArrive ? parseStoredDate(stored.latestArrive) : undefined,
+        scheduledDepart: parseStoredDate(stored.scheduledDepart),
+        vessel,
+        status: 'departing',
+      });
     }
 
     const sailings =

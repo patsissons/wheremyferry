@@ -7,7 +7,10 @@ import {
   saveHistory,
   type ScheduledDepartCorrection,
 } from './history';
-import type { Route, Sailing, SailingStatus, Vessel } from './types';
+import type { PreviousSailing, Route, Sailing, SailingStatus, Vessel } from './types';
+
+const PREVIOUS_SAILING_WINDOW_MS = 6 * 60 * 60 * 1000;
+const PREVIOUS_SAILING_LIMIT = 2;
 
 const MATCH_WINDOW_MS = 60 * 60 * 1000;
 
@@ -212,6 +215,83 @@ function sortMs(s: Sailing): number {
   if (s.scheduledDepart instanceof Date) return s.scheduledDepart.getTime();
   if (s.depart instanceof Date) return s.depart.getTime();
   return Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Source of scrapemyferry "what happened today" data for one route direction,
+ * used to build PreviousSailing rows for an inbound vessel.
+ */
+export interface PrevSailingScrapeSource {
+  routeCode: string;
+  from: string;
+  to: string;
+  duration: number;
+  conditions: CurrentConditionsBeta | null | undefined;
+  dailySchedule: DailySchedule | null | undefined;
+}
+
+/**
+ * Build previousSailings for `vesselName` from scrapemyferry's authoritative
+ * arrivedUnderway data, drawing from both the forward and reverse route
+ * sources passed in. This is the primary path — localStorage history is only
+ * consulted as a fallback when scrape data has no entries for the vessel
+ * (e.g. it served a route outside our current page's scope).
+ */
+export function findPreviousSailingsFromScrape(
+  vesselName: string,
+  beforeMs: number,
+  sources: PrevSailingScrapeSource[],
+): PreviousSailing[] {
+  const cutoffMs = beforeMs - PREVIOUS_SAILING_WINDOW_MS;
+  type Candidate = { prev: PreviousSailing; departMs: number };
+  const candidates: Candidate[] = [];
+
+  for (const src of sources) {
+    const arrivedUnderway = src.conditions?.arrivedUnderway;
+    if (!arrivedUnderway?.length) continue;
+
+    // Per-sailing duration from dailySchedule, keyed by the scheduled time
+    // string used in arrivedUnderway entries.
+    const durationByScheduled = new Map<string, number>();
+    for (const entry of src.dailySchedule?.sailings ?? []) {
+      const dur = parseScheduleDurationSeconds(entry.duration);
+      if (dur > 0) durationByScheduled.set(entry.depart, dur);
+    }
+
+    for (const entry of arrivedUnderway) {
+      if (entry.vessel?.name !== vesselName) continue;
+      const departed = parseWallClockTime(entry.departed);
+      if (!departed) continue;
+      const departMs = departed.getTime();
+      if (departMs >= beforeMs || departMs < cutoffMs) continue;
+
+      const scheduled = parseWallClockTime(entry.scheduled);
+      const arrived = entry.arrived ? parseWallClockTime(entry.arrived) : undefined;
+      const duration = durationByScheduled.get(entry.scheduled) ?? src.duration;
+      // Project arrive from depart + scheduled duration when the API hasn't
+      // recorded an actual arrival yet (vessel still underway).
+      const arrive =
+        arrived ?? (duration > 0 ? new Date(departMs + duration * 1000) : undefined);
+
+      candidates.push({
+        prev: {
+          routeCode: src.routeCode,
+          from: src.from,
+          to: src.to,
+          duration,
+          depart: departed,
+          arrive,
+          scheduledDepart: scheduled,
+          vessel: makeVessel(vesselName),
+          status: 'past',
+        },
+        departMs,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.departMs - a.departMs);
+  return candidates.slice(0, PREVIOUS_SAILING_LIMIT).map((c) => c.prev);
 }
 
 /**
