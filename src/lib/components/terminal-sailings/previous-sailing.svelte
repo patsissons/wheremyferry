@@ -12,16 +12,21 @@
   // otherwise it points the same way as the parent sailing.
   $: inbound = sailing.to === referenceFrom;
   $: vessel = sailing.vessel;
-  $: departDelay = computeDepartDelay(sailing);
   $: totalDelay = computeTotalDelay(sailing);
 
-  // departure delay: same math as the live sailing trigger uses, simplified
-  // because every previous sailing is in the past (no "future status, but
-  // depart already happened" clamp needed).
-  function computeDepartDelay({ depart, scheduledDepart }: PreviousSailing) {
+  // departure delay: same math as the live sailing trigger. Reads Date.now()
+  // each call so when invoked inside SailingElapsed's PeriodicRefresh slot it
+  // grows tick-by-tick whenever the API is lagging behind reality (sailing
+  // still status='future' but its scheduled time is already past).
+  function computeDepartDelay({ depart, scheduledDepart, status }: PreviousSailing) {
     if (!(scheduledDepart instanceof Date)) return;
-    const minutes = Math.round((depart.getTime() - scheduledDepart.getTime()) / 60_000);
+    const now = Date.now();
+    const effective = status === 'future' && depart.getTime() < now ? now : depart.getTime();
+    const minutes = Math.round((effective - scheduledDepart.getTime()) / 60_000);
     if (minutes === 0) return;
+    // hide a positive delta before the scheduled time (it's just forecast
+    // shift, not real delay); negative deltas (left early) always surface.
+    if (minutes > 0 && scheduledDepart.getTime() > now) return;
     return minutes * 60;
   }
 
@@ -61,6 +66,7 @@
     <div class="self-start justify-self-start text-left">
       <div class="flex flex-wrap gap-1">
         <SailingElapsed timestamp={sailing.depart}>
+          {@const departDelay = computeDepartDelay(sailing)}
           {#if departDelay}
             <span
               class="whitespace-nowrap font-mono"
