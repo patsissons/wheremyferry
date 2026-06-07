@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { poll, type Data } from '$lib/client';
+  import { attachPreviousSailingsToRoute } from '$lib/client/history';
   import {
     applyDurationOverride,
     applyScheduleOverride,
@@ -43,7 +44,14 @@
     scheduledList,
   );
   $: persistScheduleCorrections(liveRoute);
-  $: selectedRoute = injectMissingSailings(liveRoute, data.dailySchedule, data.conditions);
+  // injectMissingSailings runs after mergeWithHistory, so its synthesized
+  // sailings never got their previousSailings attached during polling. Re-run
+  // the attach pass over the full post-inject list so injected sailings show
+  // the same recent-vessel-history rows as live sailings do.
+  $: selectedRoute = attachPreviousSailingsToRoute(
+    injectMissingSailings(liveRoute, data.dailySchedule, data.conditions),
+    liveData?.routes,
+  );
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
   $: links = buildLinks(data.conditions?.links);
 

@@ -288,7 +288,7 @@ function findPreviousVesselSailings(
     .map((row) => buildPreviousSailing(row, routes));
 }
 
-function attachPreviousSailings<T extends Sailing>(
+export function attachPreviousSailings<T extends Sailing>(
   sailing: T,
   state: HistoryState,
   routes: Map<string, Route>,
@@ -304,6 +304,26 @@ function attachPreviousSailings<T extends Sailing>(
   );
   if (previousSailings.length === 0) return sailing;
   return { ...sailing, previousSailings };
+}
+
+/**
+ * Re-runs attachPreviousSailings across every sailing in the route. Idempotent
+ * for sailings that mergeWithHistory already enriched (live API sailings), so
+ * the cost is just lookup work. Needed because injectMissingSailings creates
+ * synthesized sailings AFTER mergeWithHistory has run — without this pass
+ * those sailings never get their previousSailings attached.
+ */
+export function attachPreviousSailingsToRoute(
+  route: Route | undefined,
+  routes: Map<string, Route> | undefined,
+): Route | undefined {
+  if (!route || !routes) return route;
+  if (typeof localStorage === 'undefined') return route;
+  const state = loadHistory();
+  if (state.sailings.length === 0) return route;
+
+  const sailings = route.sailings.map((sailing) => attachPreviousSailings(sailing, state, routes));
+  return { ...route, sailings };
 }
 
 export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Data {
