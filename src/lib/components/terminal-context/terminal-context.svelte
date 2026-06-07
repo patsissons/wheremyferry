@@ -13,7 +13,7 @@
 
   export let staticContext: StaticContext;
 
-  $: ({ conditions, dailySchedule, routes } = staticContext);
+  $: ({ conditions, arrivalConditions, dailySchedule, routes } = staticContext);
   $: slug = $page.params.slug;
   $: pair = parseSlug(slug);
   $: terminalName =
@@ -108,9 +108,14 @@
       </div>
       <Accordion.Content>
         <div class="flex flex-col gap-4 pt-2">
-          {#if conditions?.terminal}
+          {#if conditions?.terminal || arrivalConditions?.terminal}
             <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <TerminalCard terminal={conditions.terminal} label="Departing from" />
+              {#if conditions?.terminal}
+                <TerminalCard terminal={conditions.terminal} label="Departing from" />
+              {/if}
+              {#if arrivalConditions?.terminal}
+                <TerminalCard terminal={arrivalConditions.terminal} label="Arriving at" />
+              {/if}
             </div>
           {/if}
 

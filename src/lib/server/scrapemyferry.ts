@@ -46,17 +46,23 @@ export async function loadStaticContext(slug?: string): Promise<StaticContext> {
 
   if (!pair) {
     const routes = await routesPromise;
-    return { routes, conditions: null, dailySchedule: null };
+    return { routes, conditions: null, arrivalConditions: null, dailySchedule: null };
   }
 
   const { from, to } = pair;
-  const [routes, conditions, dailySchedule] = await Promise.all([
+  const [routes, conditions, arrivalConditions, dailySchedule] = await Promise.all([
     routesPromise,
     cached(`conditions:${from}-${to}`, TTL_MS.conditions, () =>
       source.currentConditionsBeta(from, to),
     ),
+    // Second scrape for the reverse direction so we can show the arrival
+    // terminal's address. The conditions payload always carries info for the
+    // "from" terminal, so flipping the args is the only way to get the other.
+    cached(`conditions:${to}-${from}`, TTL_MS.conditions, () =>
+      source.currentConditionsBeta(to, from),
+    ),
     cached(`daily:${from}-${to}`, TTL_MS.dailySchedule, () => source.dailySchedule(from, to)),
   ]);
 
-  return { routes, conditions, dailySchedule };
+  return { routes, conditions, arrivalConditions, dailySchedule };
 }
