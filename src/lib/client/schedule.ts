@@ -2,6 +2,7 @@ import type { CurrentConditionsBeta, DailySchedule } from 'scrapemyferry';
 import { vessels } from '$lib/data/vessels';
 import { parseWallClockTime } from '$lib/utils';
 import {
+  evictContaminatedRows,
   loadHistory,
   reconcileScheduledDepartures,
   saveHistory,
@@ -292,6 +293,24 @@ export function findPreviousSailingsFromScrape(
 
   candidates.sort((a, b) => b.departMs - a.departMs);
   return candidates.slice(0, PREVIOUS_SAILING_LIMIT).map((c) => c.prev);
+}
+
+/**
+ * Eject stored rows whose scheduledDepart doesn't match any entry in the
+ * authoritative dailySchedule for their route. Runs alongside the schedule
+ * override pipeline so contaminated rows are removed before they can
+ * mis-match a subsequent upsertFromApi or contaminate the localStorage
+ * fallback path for previousSailings.
+ */
+export function persistContaminationEviction(
+  scheduledListByRoute: Map<string, Date[]> | undefined,
+): void {
+  if (typeof localStorage === 'undefined') return;
+  if (!scheduledListByRoute?.size) return;
+  const state = loadHistory();
+  if (state.sailings.length === 0) return;
+  const next = evictContaminatedRows(state, scheduledListByRoute);
+  if (next !== state) saveHistory(next);
 }
 
 /**

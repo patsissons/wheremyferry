@@ -90,6 +90,49 @@ function parseStoredDate(iso: string): Date {
   return d;
 }
 
+/**
+ * Drop stored rows whose scheduledDepart doesn't match any actual entry in
+ * the authoritative dailySchedule for their route. These are usually
+ * "phantom" rows caused by findMatch latching onto the wrong scheduled slot
+ * during a windowed API observation, and leaving them in place means the
+ * NEXT findMatch can latch onto them too, propagating the contamination.
+ *
+ * Limited to routes we actually have dailySchedule for (forward + reverse);
+ * rows on routes we can't verify are left alone.
+ */
+export function evictContaminatedRows(
+  state: HistoryState,
+  knownSchedules: Map<string, Date[]>,
+  matchWindowMs: number = 5 * 60 * 1000,
+): HistoryState {
+  if (knownSchedules.size === 0) return state;
+  let mutated = false;
+
+  const keep = state.sailings.filter((row) => {
+    const schedule = knownSchedules.get(row.routeCode);
+    if (!schedule?.length) return true;
+
+    const scheduledMs = Date.parse(row.scheduledDepart);
+    if (!Number.isFinite(scheduledMs)) {
+      mutated = true;
+      return false;
+    }
+
+    const hasMatch = schedule.some(
+      (s) => Math.abs(s.getTime() - scheduledMs) <= matchWindowMs,
+    );
+    if (!hasMatch) mutated = true;
+    return hasMatch;
+  });
+
+  if (!mutated) return state;
+  return {
+    version: STORAGE_VERSION,
+    updatedAt: new Date().toISOString(),
+    sailings: keep,
+  };
+}
+
 export interface ScheduledDepartCorrection {
   /** matches stored row.latestDepart (which always equals the live sailing's
    *  depart after the most recent upsertFromApi pass) */

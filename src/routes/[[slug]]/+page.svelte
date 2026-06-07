@@ -9,6 +9,7 @@
     buildEnrichedRoutes,
     buildScheduledList,
     injectMissingSailings,
+    persistContaminationEviction,
     persistScheduleCorrections,
     type PrevSailingScrapeSource,
   } from '$lib/client/schedule';
@@ -57,6 +58,11 @@
     scheduledList,
     reverseScheduledList,
   );
+  // Evict contaminated rows on routes we have authoritative schedules for.
+  // Cheap when nothing's contaminated; prevents bad rows from being matched
+  // against by the next poll tick or from leaking into the localStorage
+  // fallback path for previousSailings.
+  $: persistContaminationEviction(scheduledListByRoute);
   // scrapemyferry's arrivedUnderway is the primary source for previousSailings.
   // localStorage history (via attachPreviousSailingsToRoute) is the fallback
   // for vessels whose recent activity isn't in the current page's conditions
