@@ -32,10 +32,7 @@
     return { from: match[1], to: match[2] };
   }
 
-  function findFromName(
-    routes: Routes | null,
-    pair: { from: string; to: string } | undefined,
-  ) {
+  function findFromName(routes: Routes | null, pair: { from: string; to: string } | undefined) {
     if (!routes || !pair) return;
     for (const region of routes.regions) {
       for (const from of region.from) {

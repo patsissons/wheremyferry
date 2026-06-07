@@ -2,10 +2,16 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { poll, type Data } from '$lib/client';
+  import { attachPreviousSailingsToRoute } from '$lib/client/history';
   import {
+    applyDurationOverride,
     applyScheduleOverride,
+    buildEnrichedRoutes,
     buildScheduledList,
+    injectMissingSailings,
+    persistContaminationEviction,
     persistScheduleCorrections,
+    type PrevSailingScrapeSource,
   } from '$lib/client/schedule';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
   import TerminalSailings from '$lib/components/terminal-sailings/terminal-sailings.svelte';
@@ -28,13 +34,46 @@
   $: slug = $page.params.slug;
   // scrapemyferry's published dailySchedule is the authoritative source for
   // scheduledDepart — recomputed once when SSR data refreshes, then applied
-  // to every live update.
+  // to every live update. Both forward and reverse direction lists feed the
+  // previousSailings override so inbound prior trips (reverse route) get
+  // proper scheduledDepart instead of stale stored values.
   $: scheduledList = buildScheduledList(data.dailySchedule);
-  $: selectedRoute = applyScheduleOverride(loadRouteFromSlug(liveData, slug), scheduledList);
-  // Reconcile localStorage with the corrected scheduledDepart so features
-  // that read directly from history (previousSailings) also benefit. Cheap
-  // when nothing changed (early-returns before touching localStorage).
-  $: persistScheduleCorrections(selectedRoute);
+  $: reverseScheduledList = buildScheduledList(data.reverseDailySchedule);
+  // Apply override against the slice the live API returned (this is what we
+  // want to reconcile back to localStorage). injectMissingSailings then fills
+  // in the rest of today from dailySchedule so the UI shows the full day.
+  // Duration override fills in route.duration for routes where the live API
+  // returns an empty sailingDuration — without it, downstream delay math
+  // produces phantom over-under values.
+  $: liveRoute = applyScheduleOverride(
+    applyDurationOverride(loadRouteFromSlug(liveData, slug), data.dailySchedule),
+    scheduledList,
+  );
+  $: persistScheduleCorrections(liveRoute);
+  // Routes map with duration overrides applied for both forward and reverse
+  // legs, so prior-sailing lookups on either direction get correct duration.
+  $: enrichedRoutes = buildEnrichedRoutes(liveData?.routes, liveRoute, data.reverseDailySchedule);
+  $: scheduledListByRoute = buildScheduledListByRoute(
+    liveRoute,
+    scheduledList,
+    reverseScheduledList,
+  );
+  // Evict contaminated rows on routes we have authoritative schedules for.
+  // Cheap when nothing's contaminated; prevents bad rows from being matched
+  // against by the next poll tick or from leaking into the localStorage
+  // fallback path for previousSailings.
+  $: persistContaminationEviction(scheduledListByRoute);
+  // scrapemyferry's arrivedUnderway is the primary source for previousSailings.
+  // localStorage history (via attachPreviousSailingsToRoute) is the fallback
+  // for vessels whose recent activity isn't in the current page's conditions
+  // payloads (e.g. they served a totally different route).
+  $: scrapeSources = buildScrapeSources(liveRoute, enrichedRoutes, data);
+  $: selectedRoute = attachPreviousSailingsToRoute(
+    injectMissingSailings(liveRoute, data.dailySchedule, data.conditions),
+    enrichedRoutes,
+    scrapeSources,
+    scheduledListByRoute,
+  );
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
   $: links = buildLinks(data.conditions?.links);
 
@@ -67,6 +106,59 @@
       map.set(entry.scheduled, enrichment);
     }
     return map;
+  }
+
+  function buildScheduledListByRoute(
+    route: ReturnType<typeof loadRouteFromSlug>,
+    forward: Date[],
+    reverse: Date[],
+  ): Map<string, Date[]> | undefined {
+    if (!route) return;
+    const map = new Map<string, Date[]>();
+    if (forward.length) map.set(route.id, forward);
+    if (reverse.length) map.set(`${route.to}${route.from}`, reverse);
+    return map.size > 0 ? map : undefined;
+  }
+
+  function buildScrapeSources(
+    route: ReturnType<typeof loadRouteFromSlug>,
+    routes: Map<string, ReturnType<typeof loadRouteFromSlug>> | undefined,
+    data: PageData,
+  ): PrevSailingScrapeSource[] | undefined {
+    if (!route) return;
+    const sources: PrevSailingScrapeSource[] = [];
+    sources.push({
+      routeCode: route.id,
+      from: route.from,
+      to: route.to,
+      duration: route.duration,
+      conditions: data.conditions,
+      dailySchedule: data.dailySchedule,
+    });
+    const reverseId = `${route.to}${route.from}`;
+    const reverse = routes?.get(reverseId);
+    if (reverse) {
+      sources.push({
+        routeCode: reverseId,
+        from: route.to,
+        to: route.from,
+        duration: reverse.duration,
+        conditions: data.arrivalConditions,
+        dailySchedule: data.reverseDailySchedule,
+      });
+    } else {
+      // No live route entry — synthesize one so reverse-leg prior sailings
+      // still flow through with route metadata from scrapemyferry.
+      sources.push({
+        routeCode: reverseId,
+        from: route.to,
+        to: route.from,
+        duration: 0,
+        conditions: data.arrivalConditions,
+        dailySchedule: data.reverseDailySchedule,
+      });
+    }
+    return sources;
   }
 
   function buildLinks(raw: CurrentConditionsBeta['links'] | undefined): SailingLinks | undefined {

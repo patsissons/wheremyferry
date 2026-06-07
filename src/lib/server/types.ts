@@ -5,4 +5,5 @@ export type StaticContext = {
   conditions: CurrentConditionsBeta | null;
   arrivalConditions: CurrentConditionsBeta | null;
   dailySchedule: DailySchedule | null;
+  reverseDailySchedule: DailySchedule | null;
 };

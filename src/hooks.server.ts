@@ -5,9 +5,7 @@ import { dev } from '$app/environment';
 // generating a noisy SvelteKitError 404 in the terminal. Short-circuit
 // it with a 204 so the dev log stays clean. Production never sees the
 // probe; gating on `dev` makes the intent explicit.
-const SUPPRESSED_DEV_PATHS = new Set([
-  '/.well-known/appspecific/com.chrome.devtools.json',
-]);
+const SUPPRESSED_DEV_PATHS = new Set(['/.well-known/appspecific/com.chrome.devtools.json']);
 
 export const handle: Handle = async ({ event, resolve }) => {
   if (dev && SUPPRESSED_DEV_PATHS.has(event.url.pathname)) {

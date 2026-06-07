@@ -204,9 +204,7 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
 
         const [hours, minutes, period] = match.slice(1);
         const parsedDate = new Date();
-        parsedDate.setHours(
-          (parseInt(hours) % 12) + (period.toLowerCase() === 'pm' ? 12 : 0),
-        );
+        parsedDate.setHours((parseInt(hours) % 12) + (period.toLowerCase() === 'pm' ? 12 : 0));
         parsedDate.setMinutes(parseInt(minutes));
         parsedDate.setSeconds(0);
         parsedDate.setMilliseconds(0);

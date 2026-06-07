@@ -173,7 +173,10 @@ export function poll(updated: (data: Data) => void) {
 
     const apiData = transformRoutes(routes, state.timestamp);
 
-    if (!history) history = loadHistory();
+    // Reload from disk each tick so page-level writes (eviction,
+    // reconciliation) aren't clobbered by our in-memory snapshot. JSON parse
+    // is cheap relative to the network fetch we just did.
+    history = loadHistory();
     history = pruneHistory(history, apiData.timestamp);
     history = upsertFromApi(history, apiData, apiData.timestamp);
     saveHistory(history);
