@@ -1,5 +1,5 @@
 import ky from 'ky';
-import { isDev } from '$lib/env';
+import { enableApiFixtures, isDev } from '$lib/env';
 
 import {
   loadHistory,
@@ -50,7 +50,7 @@ async function fetchEndpoint(
   const url = new URL(path + '/', baseUrl);
 
   try {
-    if (isDev) return mocks[type];
+    if (isDev && enableApiFixtures) return mocks[type];
     if (isDev) console.log(`Fetching ${url.href}`);
 
     const res = await ky.get(url);
