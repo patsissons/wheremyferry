@@ -1,7 +1,7 @@
 import { isDev } from '$lib/env';
 import { vessels } from '$lib/data/vessels';
 
-import type { Data, Route, Sailing, SailingStatus, Vessel } from './types';
+import type { Data, PreviousSailing, Route, Sailing, SailingStatus, Vessel } from './types';
 
 const STORAGE_VERSION = 1;
 
@@ -10,6 +10,10 @@ export const HISTORY_CONFIG = {
   matchWindowMs: 60 * 60 * 1000,
   transitionalWindowMs: 60 * 60 * 1000,
   transitionalMaxSinceLastSeenMs: 15 * 60 * 1000,
+  // how far back to look for prior same-vessel sailings to surface as
+  // "recent history" context inside a sailing's expanded view
+  previousVesselWindowMs: 6 * 60 * 60 * 1000,
+  previousVesselLimit: 2,
   storageKey: 'wmf:sailings:v1',
 };
 
@@ -70,6 +74,81 @@ export function saveHistory(state: HistoryState): void {
   } catch (err) {
     if (isDev) console.warn('Failed to save sailing history', err);
   }
+}
+
+// Stored ISO strings from before parseTime started zeroing ms can carry
+// residual subseconds. Clamp to minute precision when rehydrating so any
+// arithmetic against these Dates (depart delay, total duration, over/under)
+// stays minute-aligned.
+function parseStoredDate(iso: string): Date {
+  const d = new Date(iso);
+  d.setSeconds(0, 0);
+  return d;
+}
+
+export interface ScheduledDepartCorrection {
+  /** matches stored row.latestDepart (which always equals the live sailing's
+   *  depart after the most recent upsertFromApi pass) */
+  latestDepartIso: string;
+  scheduledDepartIso: string;
+}
+
+/**
+ * Update stored rows' scheduledDepart when scrapemyferry's published schedule
+ * disagrees with what we recorded. Without this, sailings learned during the
+ * API "blind spot" (page first loaded after the sailing went current/past)
+ * would forever have scheduledDepart === actualDepart, hiding the real delay.
+ *
+ * Limited to the given routeId — we only have authoritative dailySchedule for
+ * the currently-selected route, so we never touch other routes' rows.
+ *
+ * If a correction would produce a (routeCode, scheduledDepart) duplicate of
+ * another row, the more recently seen one wins and the older copy is dropped.
+ */
+export function reconcileScheduledDepartures(
+  state: HistoryState,
+  routeId: string,
+  corrections: ScheduledDepartCorrection[],
+): HistoryState {
+  if (corrections.length === 0) return state;
+
+  const correctionByDepart = new Map<string, string>();
+  for (const c of corrections) correctionByDepart.set(c.latestDepartIso, c.scheduledDepartIso);
+
+  let mutated = false;
+  const updated = state.sailings.map((row) => {
+    if (row.routeCode !== routeId) return row;
+    const corrected = correctionByDepart.get(row.latestDepart);
+    if (!corrected || corrected === row.scheduledDepart) return row;
+    mutated = true;
+    return { ...row, scheduledDepart: corrected };
+  });
+
+  if (!mutated) return state;
+
+  // Dedupe by (routeCode, scheduledDepart); keep the most recently seen row.
+  // Walks every row, not just routeId — cheap and prevents stale duplicates
+  // from any prior bad correction.
+  const byKey = new Map<string, StoredSailing>();
+  for (const row of updated) {
+    const key = `${row.routeCode}|${row.scheduledDepart}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      continue;
+    }
+    const existingSeen = Date.parse(existing.lastSeenAt);
+    const rowSeen = Date.parse(row.lastSeenAt);
+    if (Number.isFinite(rowSeen) && (!Number.isFinite(existingSeen) || rowSeen >= existingSeen)) {
+      byKey.set(key, row);
+    }
+  }
+
+  return {
+    version: STORAGE_VERSION,
+    updatedAt: new Date().toISOString(),
+    sailings: Array.from(byKey.values()),
+  };
 }
 
 export function pruneHistory(state: HistoryState, now: Date): HistoryState {
@@ -164,6 +243,72 @@ export function upsertFromApi(state: HistoryState, data: Data, now: Date): Histo
   return { version: STORAGE_VERSION, updatedAt: nowIso, sailings: rows };
 }
 
+function buildPreviousSailing(
+  row: StoredSailing,
+  routes: Map<string, Route>,
+): PreviousSailing {
+  const route = routes.get(row.routeCode);
+  // routeCode is from+to concatenated (e.g. "HSBLNG"); fall back to splitting
+  // it if the route isn't currently in the API payload (vessel briefly served
+  // a non-scheduled route, etc.)
+  const from = route?.from ?? row.routeCode.slice(0, 3);
+  const to = route?.to ?? row.routeCode.slice(3, 6);
+  const duration = route?.duration ?? 0;
+  const vessel: Vessel | undefined = row.vesselName
+    ? { ...vessels[row.vesselName], name: row.vesselName }
+    : undefined;
+
+  return {
+    routeCode: row.routeCode,
+    from,
+    to,
+    duration,
+    depart: parseStoredDate(row.latestDepart),
+    arrive: row.latestArrive ? parseStoredDate(row.latestArrive) : undefined,
+    scheduledDepart: parseStoredDate(row.scheduledDepart),
+    vessel,
+    status: row.lastStatus,
+  };
+}
+
+function findPreviousVesselSailings(
+  rows: StoredSailing[],
+  vesselName: string,
+  beforeMs: number,
+  routes: Map<string, Route>,
+): PreviousSailing[] {
+  const cutoff = beforeMs - HISTORY_CONFIG.previousVesselWindowMs;
+  return rows
+    .filter((row) => {
+      if (row.vesselName !== vesselName) return false;
+      const departTime = Date.parse(row.latestDepart);
+      if (!Number.isFinite(departTime)) return false;
+      // strictly before this sailing — excludes the current sailing's own row
+      return departTime < beforeMs && departTime >= cutoff;
+    })
+    .sort((a, b) => Date.parse(b.latestDepart) - Date.parse(a.latestDepart))
+    .slice(0, HISTORY_CONFIG.previousVesselLimit)
+    .map((row) => buildPreviousSailing(row, routes));
+}
+
+function attachPreviousSailings<T extends Sailing>(
+  sailing: T,
+  state: HistoryState,
+  routes: Map<string, Route>,
+): T {
+  const vesselName = sailing.vessel?.name;
+  if (!vesselName) return sailing;
+  if (!(sailing.depart instanceof Date)) return sailing;
+  const previousSailings = findPreviousVesselSailings(
+    state.sailings,
+    vesselName,
+    sailing.depart.getTime(),
+    routes,
+  );
+  if (previousSailings.length === 0) return sailing;
+  return { ...sailing, previousSailings };
+}
+
 export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Data {
   if (state.sailings.length === 0) return data;
 
@@ -175,9 +320,12 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
     const enhanced = route.sailings.map((sailing) => {
       if (!(sailing.depart instanceof Date)) return sailing;
       const match = findMatch(state.sailings, route.id, sailing.depart, matchedScheduled);
-      if (!match) return sailing;
-      matchedScheduled.add(match.scheduledDepart);
-      return { ...sailing, scheduledDepart: new Date(match.scheduledDepart) };
+      let next: Sailing = sailing;
+      if (match) {
+        matchedScheduled.add(match.scheduledDepart);
+        next = { ...next, scheduledDepart: parseStoredDate(match.scheduledDepart) };
+      }
+      return attachPreviousSailings(next, state, data.routes);
     });
 
     const injected: Sailing[] = [];
@@ -198,13 +346,19 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
         ? { ...vessels[stored.vesselName], name: stored.vesselName }
         : undefined;
 
-      injected.push({
-        depart: new Date(stored.latestDepart),
-        arrive: stored.latestArrive ? new Date(stored.latestArrive) : undefined,
-        scheduledDepart: scheduled,
-        vessel,
-        status: 'departing',
-      });
+      injected.push(
+        attachPreviousSailings(
+          {
+            depart: parseStoredDate(stored.latestDepart),
+            arrive: stored.latestArrive ? parseStoredDate(stored.latestArrive) : undefined,
+            scheduledDepart: parseStoredDate(stored.scheduledDepart),
+            vessel,
+            status: 'departing',
+          },
+          state,
+          data.routes,
+        ),
+      );
     }
 
     const sailings =

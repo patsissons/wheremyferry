@@ -1,5 +1,8 @@
 node_modules
 
+# claude
+.claude/worktrees
+
 # Output
 .output
 .vercel
@@ -11,10 +14,8 @@ node_modules
 Thumbs.db
 
 # Env
-.env
-.env.*
-!.env.example
-!.env.test
+.env.local
+.env.*.local
 
 # Vite
 vite.config.js.timestamp-*

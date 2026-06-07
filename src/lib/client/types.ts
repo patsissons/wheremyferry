@@ -100,6 +100,28 @@ export interface Sailing {
    * will be undefined if we don't have a Date for depart and arrive
    */
   status?: SailingStatus;
+  /**
+   * recent prior sailings of the same vessel (most recent first), surfaced by
+   * the history layer to give context about whether the inbound trip may
+   * propagate delay into this sailing. omitted (rather than empty) when none
+   * are found.
+   */
+  previousSailings?: PreviousSailing[];
+}
+
+export interface PreviousSailing {
+  routeCode: string;
+  /** origin terminal code for the prior sailing */
+  from: string;
+  /** destination terminal code for the prior sailing */
+  to: string;
+  /** route's published sailing duration in seconds, used for delay math */
+  duration: number;
+  depart: Date;
+  arrive?: Date;
+  scheduledDepart?: Date;
+  vessel?: Vessel;
+  status?: SailingStatus;
 }
 
 export interface CapacitySailing extends Sailing {

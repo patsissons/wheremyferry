@@ -13,10 +13,11 @@
 
   export let staticContext: StaticContext;
 
-  $: ({ conditions, dailySchedule, routes } = staticContext);
+  $: ({ conditions, arrivalConditions, dailySchedule, routes } = staticContext);
   $: slug = $page.params.slug;
   $: pair = parseSlug(slug);
-  $: destinationName = findDestinationName(routes, pair) ?? pair?.to ?? 'Route';
+  $: terminalName =
+    conditions?.terminal?.name ?? findFromName(routes, pair) ?? pair?.from ?? 'Route';
   $: directionsUrl = buildDirectionsUrl(conditions);
   $: hasAny =
     !!conditions?.terminal ||
@@ -31,17 +32,14 @@
     return { from: match[1], to: match[2] };
   }
 
-  function findDestinationName(
+  function findFromName(
     routes: Routes | null,
     pair: { from: string; to: string } | undefined,
   ) {
     if (!routes || !pair) return;
     for (const region of routes.regions) {
       for (const from of region.from) {
-        if (from.code !== pair.from) continue;
-        for (const to of from.to) {
-          if (to.code === pair.to) return to.name;
-        }
+        if (from.code === pair.from) return from.name;
       }
     }
   }
@@ -52,7 +50,7 @@
     const hours = (parseInt(match[1]) % 12) + (match[3].toLowerCase() === 'pm' ? 12 : 0);
     const minutes = parseInt(match[2]);
     const d = new Date();
-    d.setHours(hours, minutes, 0, 0);
+    d.setHours(hours, minutes, 0, 0); // already zeroes ms via the 4th arg
     return d;
   }
 
@@ -93,7 +91,7 @@
     <Accordion.Item value="context" class="border-0">
       <div class="flex w-full items-center gap-2">
         <Accordion.Trigger class="flex-1 py-1 text-left text-sm font-semibold">
-          {destinationName} details
+          {terminalName} details
         </Accordion.Trigger>
         {#if directionsUrl}
           <a
@@ -110,9 +108,14 @@
       </div>
       <Accordion.Content>
         <div class="flex flex-col gap-4 pt-2">
-          {#if conditions?.terminal}
+          {#if conditions?.terminal || arrivalConditions?.terminal}
             <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <TerminalCard terminal={conditions.terminal} label="Departing from" />
+              {#if conditions?.terminal}
+                <TerminalCard terminal={conditions.terminal} label="Departing from" />
+              {/if}
+              {#if arrivalConditions?.terminal}
+                <TerminalCard terminal={arrivalConditions.terminal} label="Arriving at" />
+              {/if}
             </div>
           {/if}
 
@@ -129,7 +132,11 @@
           {/if}
 
           {#if dailySchedule}
-            <DailySchedule schedule={dailySchedule} />
+            <DailySchedule
+              schedule={dailySchedule}
+              upcoming={conditions?.upcoming}
+              arrivedUnderway={conditions?.arrivedUnderway}
+            />
           {/if}
 
           {#if conditions?.tomorrow?.length}
