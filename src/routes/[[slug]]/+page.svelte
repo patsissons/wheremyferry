@@ -4,14 +4,26 @@
   import { poll, type Data } from '$lib/client';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
   import TerminalSailings from '$lib/components/terminal-sailings/terminal-sailings.svelte';
+  import TerminalContext from '$lib/components/terminal-context/terminal-context.svelte';
   import PeriodicRefresh from '$lib/components/periodic-refresh.svelte';
+  import type {
+    EnrichmentMap,
+    SailingEnrichment,
+    SailingLinks,
+  } from '$lib/components/terminal-sailings/types';
+  import type { CurrentConditionsBeta } from 'scrapemyferry';
   import { formatElapsed, formatTimestamp } from '$lib/utils';
   import { isDev } from '$lib/env';
+  import type { PageData } from './$types';
 
-  let data: Data | undefined;
+  export let data: PageData;
+
+  let liveData: Data | undefined;
 
   $: slug = $page.params.slug;
-  $: selectedRoute = loadRouteFromSlug(data, slug);
+  $: selectedRoute = loadRouteFromSlug(liveData, slug);
+  $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
+  $: links = buildLinks(data.conditions?.links);
 
   onMount(() => {
     return poll(updated);
@@ -24,22 +36,51 @@
   }
 
   function updated(update: Data) {
-    data = update;
-    if (isDev) console.log('Data updated:', data);
+    liveData = update;
+    if (isDev) console.log('Data updated:', liveData);
+  }
+
+  function buildEnrichmentMap(
+    upcoming: CurrentConditionsBeta['upcoming'] | undefined,
+  ): EnrichmentMap | undefined {
+    if (!upcoming?.length) return;
+    const map: EnrichmentMap = new Map();
+    for (const entry of upcoming) {
+      const enrichment: SailingEnrichment = {
+        checkinOpensAt: entry.checkinOpensAt || undefined,
+        spaceReleasedAt: entry.spaceReleasedAt || undefined,
+        availableSpace: typeof entry.availableSpace === 'number' ? entry.availableSpace : undefined,
+      };
+      map.set(entry.scheduled, enrichment);
+    }
+    return map;
+  }
+
+  function buildLinks(raw: CurrentConditionsBeta['links'] | undefined): SailingLinks | undefined {
+    if (!raw) return;
+    return {
+      booking: raw.booking || undefined,
+      schedule: raw.schedule || undefined,
+    };
   }
 </script>
 
-<main class="container mx-auto grid h-full grid-rows-[auto,1fr,auto] gap-4">
-  {#if data}
-    <TerminalHeader {data} {selectedRoute} />
+<main class="container mx-auto grid h-full grid-rows-[auto,auto,1fr,auto] gap-4">
+  {#if liveData}
+    <TerminalHeader data={liveData} {selectedRoute} />
+  {/if}
+  {#if slug}
+    <TerminalContext staticContext={data} />
+  {/if}
+  {#if liveData}
     {#if selectedRoute}
-      <TerminalSailings route={selectedRoute} timestamp={data.timestamp} />
-      {#if data.timestamp}
+      <TerminalSailings route={selectedRoute} timestamp={liveData.timestamp} {enrichment} {links} />
+      {#if liveData.timestamp}
         <div class="w-full justify-self-center rounded-md bg-muted px-2 py-1">
           <p class="text-center text-xs italic leading-none text-muted-foreground">
             <PeriodicRefresh>
               <svelte:fragment let:now>
-                {@const elapsed = formatElapsed((now - data.timestamp.getTime()) / 1000)}
+                {@const elapsed = formatElapsed((now - liveData.timestamp.getTime()) / 1000)}
                 updated
                 {#if elapsed.value}
                   <code class="font-medium">{elapsed.value}</code>
@@ -50,7 +91,7 @@
                 {#if elapsed.value}
                   ago
                 {/if}
-                ({formatTimestamp(data.timestamp)})
+                ({formatTimestamp(liveData.timestamp)})
               </svelte:fragment>
             </PeriodicRefresh>
           </p>
