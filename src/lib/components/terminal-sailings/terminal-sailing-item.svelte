@@ -13,6 +13,8 @@
   import PeriodicRefresh from '../periodic-refresh.svelte';
   import * as Accordion from '../ui/accordion';
   import Progress from '../ui/progress/progress.svelte';
+  import PreviousSailingRow from './previous-sailing.svelte';
+  import RelativeTime from './relative-time.svelte';
   import SailingElapsed from './sailing-elapsed.svelte';
   import SailingFill from './sailing-fill.svelte';
 
@@ -23,6 +25,43 @@
   export let to: string;
   export let enrichment: SailingEnrichment | undefined = undefined;
   export let links: SailingLinks | undefined = undefined;
+
+  $: previousSailings = sailing.previousSailings ?? [];
+
+  // Reference for ticket-sales-closes (15 min before scheduled depart). Only
+  // meaningful for sailings that haven't left yet — once a vessel is
+  // departing/active/past, ticket sales for it are irrelevant. Prefer
+  // scheduledDepart (history-derived true scheduled time); fall back to
+  // sailing.depart, which for future sailings is the scheduled time.
+  $: scheduledReference =
+    sailing.status === 'future'
+      ? sailing.scheduledDepart instanceof Date
+        ? sailing.scheduledDepart
+        : sailing.depart instanceof Date
+          ? sailing.depart
+          : undefined
+      : undefined;
+  $: ticketSalesCloseAt = scheduledReference
+    ? new Date(scheduledReference.getTime() - 15 * 60 * 1000)
+    : undefined;
+  $: checkinOpensAtDate = parseClockTime(enrichment?.checkinOpensAt);
+  $: spaceReleasedAtDate = parseClockTime(enrichment?.spaceReleasedAt);
+  $: showCheckinBand =
+    !!enrichment?.checkinOpensAt ||
+    !!enrichment?.spaceReleasedAt ||
+    !!ticketSalesCloseAt ||
+    typeof enrichment?.availableSpace === 'number';
+
+  function parseClockTime(value?: string): Date | undefined {
+    if (!value) return;
+    const match = /^(\d+):(\d+)\s+(AM|PM|am|pm)$/.exec(value.trim());
+    if (!match) return;
+    const hours = (parseInt(match[1]) % 12) + (match[3].toLowerCase() === 'pm' ? 12 : 0);
+    const minutes = parseInt(match[2]);
+    const d = new Date();
+    d.setHours(hours, minutes, 0, 0);
+    return d;
+  }
 
   $: value = typeof sailing.depart === 'string' ? sailing.depart : sailing.depart.toISOString();
   $: vessel = 'vessel' in sailing ? sailing.vessel : undefined;
@@ -198,6 +237,16 @@
   </Accordion.Trigger>
   <Accordion.Content>
     <div class="flex flex-col gap-2 transition-all">
+      {#if previousSailings.length > 0}
+        <div class="flex flex-col gap-1">
+          <h4 class="px-1 text-xs uppercase tracking-wide text-muted-foreground">
+            Recent {vessel?.name ?? 'vessel'} sailings
+          </h4>
+          {#each previousSailings as prev (prev.routeCode + prev.depart.toISOString())}
+            <PreviousSailingRow sailing={prev} referenceFrom={from} />
+          {/each}
+        </div>
+      {/if}
       {#if !sailing.arrive && 'fill' in sailing && sailing.fill > 0 && (sailing.carFill > 0 || sailing.oversizeFill > 0)}
         <div class="grid grid-cols-2 grid-rows-2 place-items-center">
           <SailingFill fill={sailing.carFill} />
@@ -206,19 +255,36 @@
           <span class="text-md">Overflow</span>
         </div>
       {/if}
-      {#if enrichment?.checkinOpensAt || enrichment?.spaceReleasedAt}
+      {#if showCheckinBand}
         <div
-          class="grid grid-cols-2 items-baseline gap-x-3 gap-y-1 rounded border border-muted-foreground/40 bg-background/40 px-3 py-2 text-xs"
+          class="grid grid-cols-2 items-baseline gap-x-3 gap-y-1 bg-background/40 px-3 py-2 text-xs"
         >
-          {#if enrichment.checkinOpensAt}
+          {#if enrichment?.checkinOpensAt}
             <span class="text-muted-foreground">Check-in opens</span>
-            <span class="font-mono">{enrichment.checkinOpensAt}</span>
+            <span class="font-mono">
+              {enrichment.checkinOpensAt}
+              {#if checkinOpensAtDate}
+                <RelativeTime time={checkinOpensAtDate} />
+              {/if}
+            </span>
           {/if}
-          {#if enrichment.spaceReleasedAt}
+          {#if enrichment?.spaceReleasedAt}
             <span class="text-muted-foreground">Space released</span>
-            <span class="font-mono">{enrichment.spaceReleasedAt}</span>
+            <span class="font-mono">
+              {enrichment.spaceReleasedAt}
+              {#if spaceReleasedAtDate}
+                <RelativeTime time={spaceReleasedAtDate} />
+              {/if}
+            </span>
           {/if}
-          {#if typeof enrichment.availableSpace === 'number'}
+          {#if ticketSalesCloseAt}
+            <span class="text-muted-foreground">Ticket sales close</span>
+            <span class="font-mono">
+              {formatTime(ticketSalesCloseAt)}
+              <RelativeTime time={ticketSalesCloseAt} />
+            </span>
+          {/if}
+          {#if typeof enrichment?.availableSpace === 'number'}
             <span class="text-muted-foreground">Space available</span>
             <span class="font-mono">{Math.round(enrichment.availableSpace * 100)}%</span>
           {/if}

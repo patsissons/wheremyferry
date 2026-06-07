@@ -1,7 +1,7 @@
 import { isDev } from '$lib/env';
 import { vessels } from '$lib/data/vessels';
 
-import type { Data, Route, Sailing, SailingStatus, Vessel } from './types';
+import type { Data, PreviousSailing, Route, Sailing, SailingStatus, Vessel } from './types';
 
 const STORAGE_VERSION = 1;
 
@@ -10,6 +10,10 @@ export const HISTORY_CONFIG = {
   matchWindowMs: 60 * 60 * 1000,
   transitionalWindowMs: 60 * 60 * 1000,
   transitionalMaxSinceLastSeenMs: 15 * 60 * 1000,
+  // how far back to look for prior same-vessel sailings to surface as
+  // "recent history" context inside a sailing's expanded view
+  previousVesselWindowMs: 6 * 60 * 60 * 1000,
+  previousVesselLimit: 2,
   storageKey: 'wmf:sailings:v1',
 };
 
@@ -174,6 +178,72 @@ export function upsertFromApi(state: HistoryState, data: Data, now: Date): Histo
   return { version: STORAGE_VERSION, updatedAt: nowIso, sailings: rows };
 }
 
+function buildPreviousSailing(
+  row: StoredSailing,
+  routes: Map<string, Route>,
+): PreviousSailing {
+  const route = routes.get(row.routeCode);
+  // routeCode is from+to concatenated (e.g. "HSBLNG"); fall back to splitting
+  // it if the route isn't currently in the API payload (vessel briefly served
+  // a non-scheduled route, etc.)
+  const from = route?.from ?? row.routeCode.slice(0, 3);
+  const to = route?.to ?? row.routeCode.slice(3, 6);
+  const duration = route?.duration ?? 0;
+  const vessel: Vessel | undefined = row.vesselName
+    ? { ...vessels[row.vesselName], name: row.vesselName }
+    : undefined;
+
+  return {
+    routeCode: row.routeCode,
+    from,
+    to,
+    duration,
+    depart: parseStoredDate(row.latestDepart),
+    arrive: row.latestArrive ? parseStoredDate(row.latestArrive) : undefined,
+    scheduledDepart: parseStoredDate(row.scheduledDepart),
+    vessel,
+    status: row.lastStatus,
+  };
+}
+
+function findPreviousVesselSailings(
+  rows: StoredSailing[],
+  vesselName: string,
+  beforeMs: number,
+  routes: Map<string, Route>,
+): PreviousSailing[] {
+  const cutoff = beforeMs - HISTORY_CONFIG.previousVesselWindowMs;
+  return rows
+    .filter((row) => {
+      if (row.vesselName !== vesselName) return false;
+      const departTime = Date.parse(row.latestDepart);
+      if (!Number.isFinite(departTime)) return false;
+      // strictly before this sailing — excludes the current sailing's own row
+      return departTime < beforeMs && departTime >= cutoff;
+    })
+    .sort((a, b) => Date.parse(b.latestDepart) - Date.parse(a.latestDepart))
+    .slice(0, HISTORY_CONFIG.previousVesselLimit)
+    .map((row) => buildPreviousSailing(row, routes));
+}
+
+function attachPreviousSailings<T extends Sailing>(
+  sailing: T,
+  state: HistoryState,
+  routes: Map<string, Route>,
+): T {
+  const vesselName = sailing.vessel?.name;
+  if (!vesselName) return sailing;
+  if (!(sailing.depart instanceof Date)) return sailing;
+  const previousSailings = findPreviousVesselSailings(
+    state.sailings,
+    vesselName,
+    sailing.depart.getTime(),
+    routes,
+  );
+  if (previousSailings.length === 0) return sailing;
+  return { ...sailing, previousSailings };
+}
+
 export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Data {
   if (state.sailings.length === 0) return data;
 
@@ -185,9 +255,12 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
     const enhanced = route.sailings.map((sailing) => {
       if (!(sailing.depart instanceof Date)) return sailing;
       const match = findMatch(state.sailings, route.id, sailing.depart, matchedScheduled);
-      if (!match) return sailing;
-      matchedScheduled.add(match.scheduledDepart);
-      return { ...sailing, scheduledDepart: parseStoredDate(match.scheduledDepart) };
+      let next: Sailing = sailing;
+      if (match) {
+        matchedScheduled.add(match.scheduledDepart);
+        next = { ...next, scheduledDepart: parseStoredDate(match.scheduledDepart) };
+      }
+      return attachPreviousSailings(next, state, data.routes);
     });
 
     const injected: Sailing[] = [];
@@ -208,13 +281,19 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
         ? { ...vessels[stored.vesselName], name: stored.vesselName }
         : undefined;
 
-      injected.push({
-        depart: parseStoredDate(stored.latestDepart),
-        arrive: stored.latestArrive ? parseStoredDate(stored.latestArrive) : undefined,
-        scheduledDepart: parseStoredDate(stored.scheduledDepart),
-        vessel,
-        status: 'departing',
-      });
+      injected.push(
+        attachPreviousSailings(
+          {
+            depart: parseStoredDate(stored.latestDepart),
+            arrive: stored.latestArrive ? parseStoredDate(stored.latestArrive) : undefined,
+            scheduledDepart: parseStoredDate(stored.scheduledDepart),
+            vessel,
+            status: 'departing',
+          },
+          state,
+          data.routes,
+        ),
+      );
     }
 
     const sailings =
