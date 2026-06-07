@@ -132,7 +132,11 @@
           {/if}
 
           {#if dailySchedule}
-            <DailySchedule schedule={dailySchedule} />
+            <DailySchedule
+              schedule={dailySchedule}
+              upcoming={conditions?.upcoming}
+              arrivedUnderway={conditions?.arrivedUnderway}
+            />
           {/if}
 
           {#if conditions?.tomorrow?.length}
