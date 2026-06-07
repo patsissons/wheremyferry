@@ -3,8 +3,10 @@
   import { page } from '$app/stores';
   import { poll, type Data } from '$lib/client';
   import {
+    applyDurationOverride,
     applyScheduleOverride,
     buildScheduledList,
+    injectMissingSailings,
     persistScheduleCorrections,
   } from '$lib/client/schedule';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
@@ -30,11 +32,18 @@
   // scheduledDepart — recomputed once when SSR data refreshes, then applied
   // to every live update.
   $: scheduledList = buildScheduledList(data.dailySchedule);
-  $: selectedRoute = applyScheduleOverride(loadRouteFromSlug(liveData, slug), scheduledList);
-  // Reconcile localStorage with the corrected scheduledDepart so features
-  // that read directly from history (previousSailings) also benefit. Cheap
-  // when nothing changed (early-returns before touching localStorage).
-  $: persistScheduleCorrections(selectedRoute);
+  // Apply override against the slice the live API returned (this is what we
+  // want to reconcile back to localStorage). injectMissingSailings then fills
+  // in the rest of today from dailySchedule so the UI shows the full day.
+  // Duration override fills in route.duration for routes where the live API
+  // returns an empty sailingDuration — without it, downstream delay math
+  // produces phantom over-under values.
+  $: liveRoute = applyScheduleOverride(
+    applyDurationOverride(loadRouteFromSlug(liveData, slug), data.dailySchedule),
+    scheduledList,
+  );
+  $: persistScheduleCorrections(liveRoute);
+  $: selectedRoute = injectMissingSailings(liveRoute, data.dailySchedule, data.conditions);
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
   $: links = buildLinks(data.conditions?.links);
 

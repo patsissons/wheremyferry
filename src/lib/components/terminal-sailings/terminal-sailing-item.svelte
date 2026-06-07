@@ -99,7 +99,13 @@
     }
   }
 
-  function calcOverUnder({ depart, arrive }: Sailing, duration: number) {
+  function calcOverUnder({ depart, arrive, status }: Sailing, duration: number) {
+    // Skip future sailings: depart/arrive are forecasts (etd/eta or pure
+    // schedule), and any delta is either a forecast deviation or a phantom
+    // mismatch between route.duration and the per-sailing scheduled duration.
+    // Once the sailing is departing/current/past, the delta reflects observed
+    // reality and is worth showing.
+    if (status === 'future') return;
     if (!(depart instanceof Date) || !(arrive instanceof Date)) return;
 
     return (arrive.getTime() - depart.getTime()) / 1000 - duration;

@@ -1,4 +1,5 @@
-import type { DailySchedule } from 'scrapemyferry';
+import type { CurrentConditionsBeta, DailySchedule } from 'scrapemyferry';
+import { vessels } from '$lib/data/vessels';
 import { parseWallClockTime } from '$lib/utils';
 import {
   loadHistory,
@@ -6,9 +7,42 @@ import {
   saveHistory,
   type ScheduledDepartCorrection,
 } from './history';
-import type { Route, Sailing } from './types';
+import type { Route, Sailing, SailingStatus, Vessel } from './types';
 
 const MATCH_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Some BC Ferries API routes (often noncapacity ones) come back with an
+ * empty sailingDuration, so `route.duration` parses to 0. That breaks every
+ * downstream delay calc (depart/arrive over-under, total time from scheduled
+ * departure, progress bar). Fall back to the first parseable duration in
+ * scrapemyferry's dailySchedule for that route, which is always populated.
+ *
+ * Per-sailing duration variance (e.g. a "Round trip" entry that's longer
+ * than regular sailings) is ignored here — picking the first entry is a
+ * pragmatic choice that handles the typical case and avoids threading
+ * per-sailing duration through the render pipeline.
+ */
+export function applyDurationOverride(
+  route: Route | undefined,
+  dailySchedule: DailySchedule | null | undefined,
+): Route | undefined {
+  if (!route) return route;
+  if (route.duration > 0) return route;
+  if (!dailySchedule?.sailings?.length) return route;
+  for (const entry of dailySchedule.sailings) {
+    const seconds = parseScheduleDurationSeconds(entry.duration);
+    if (seconds > 0) return { ...route, duration: seconds };
+  }
+  return route;
+}
+
+// dailySchedule entries report duration as "HH:MM" (e.g. "00:40", "01:35").
+function parseScheduleDurationSeconds(value: string): number {
+  const match = /^(\d+):(\d+)$/.exec(value.trim());
+  if (!match) return 0;
+  return parseInt(match[1]) * 3600 + parseInt(match[2]) * 60;
+}
 
 export function buildScheduledList(dailySchedule: DailySchedule | null | undefined): Date[] {
   if (!dailySchedule?.sailings?.length) return [];
@@ -59,6 +93,99 @@ export function applyScheduleOverride(
   });
 
   return { ...route, sailings };
+}
+
+/**
+ * The BC Ferries JSON API only returns a windowed slice of today's sailings
+ * (typically a few past + a few upcoming), so the live sailings list is
+ * incomplete. Use scrapemyferry's full dailySchedule to fill in the gaps,
+ * enriching synthesized sailings with vessel + actual times from
+ * currentConditionsBeta when an entry there matches.
+ */
+export function injectMissingSailings(
+  route: Route | undefined,
+  dailySchedule: DailySchedule | null | undefined,
+  conditions: CurrentConditionsBeta | null | undefined,
+): Route | undefined {
+  if (!route) return route;
+  if (!dailySchedule?.sailings?.length) return route;
+
+  // Track scheduled times already represented in the live list so we don't
+  // duplicate. Live sailings carry scheduledDepart from applyScheduleOverride
+  // when a dailySchedule entry was claimed; otherwise their `depart` itself
+  // is the relevant marker.
+  const presentScheduledMs = new Set<number>();
+  for (const s of route.sailings) {
+    if (s.scheduledDepart instanceof Date) {
+      presentScheduledMs.add(s.scheduledDepart.getTime());
+    } else if (s.depart instanceof Date) {
+      presentScheduledMs.add(s.depart.getTime());
+    }
+  }
+
+  const arrivedByScheduled = new Map<string, CurrentConditionsBeta['arrivedUnderway'][number]>();
+  const upcomingByScheduled = new Map<string, CurrentConditionsBeta['upcoming'][number]>();
+  for (const a of conditions?.arrivedUnderway ?? []) arrivedByScheduled.set(a.scheduled, a);
+  for (const u of conditions?.upcoming ?? []) upcomingByScheduled.set(u.scheduled, u);
+
+  const nowMs = Date.now();
+  const injected: Sailing[] = [];
+
+  for (const entry of dailySchedule.sailings) {
+    const scheduled = parseWallClockTime(entry.depart);
+    if (!scheduled) continue;
+    if (presentScheduledMs.has(scheduled.getTime())) continue;
+
+    const arriveScheduled = parseWallClockTime(entry.arrive);
+    const arrivedEntry = arrivedByScheduled.get(entry.depart);
+    const upcomingEntry = upcomingByScheduled.get(entry.depart);
+
+    let depart: Date = scheduled;
+    let arrive: Date | undefined = arriveScheduled;
+    let vessel: Vessel | undefined;
+    let status: SailingStatus | undefined;
+
+    if (arrivedEntry) {
+      depart = parseWallClockTime(arrivedEntry.departed) ?? scheduled;
+      arrive = parseWallClockTime(arrivedEntry.arrived) ?? arriveScheduled;
+      vessel = makeVessel(arrivedEntry.vessel?.name);
+      status = 'past';
+    } else if (upcomingEntry) {
+      depart = parseWallClockTime(upcomingEntry.etd) ?? scheduled;
+      arrive = parseWallClockTime(upcomingEntry.eta) ?? arriveScheduled;
+      vessel = makeVessel(upcomingEntry.vessel?.name);
+      status = 'future';
+    } else {
+      // no conditions enrichment — infer status from scheduled times alone
+      if (scheduled.getTime() > nowMs) status = 'future';
+      else if (arriveScheduled && arriveScheduled.getTime() > nowMs) status = 'current';
+      else status = 'past';
+    }
+
+    injected.push({ depart, arrive, scheduledDepart: scheduled, vessel, status });
+  }
+
+  if (injected.length === 0) return route;
+
+  const sailings = [...route.sailings, ...injected].sort(sailingSortKey);
+  return { ...route, sailings };
+}
+
+function makeVessel(name: string | undefined): Vessel | undefined {
+  if (!name) return undefined;
+  return { ...vessels[name], name };
+}
+
+function sailingSortKey(a: Sailing, b: Sailing): number {
+  const aMs = sortMs(a);
+  const bMs = sortMs(b);
+  return aMs - bMs;
+}
+
+function sortMs(s: Sailing): number {
+  if (s.scheduledDepart instanceof Date) return s.scheduledDepart.getTime();
+  if (s.depart instanceof Date) return s.depart.getTime();
+  return Number.MAX_SAFE_INTEGER;
 }
 
 /**
