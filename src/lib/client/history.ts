@@ -255,13 +255,22 @@ function buildPreviousSailing(row: StoredSailing, routes: Map<string, Route>): P
     ? { ...vessels[row.vesselName], name: row.vesselName }
     : undefined;
 
+  const depart = parseStoredDate(row.latestDepart);
+  const actualArrive = row.latestArrive ? parseStoredDate(row.latestArrive) : undefined;
+  // Project arrival from depart + scheduled duration when the API never
+  // reported an actual arrival. Carries the departure delay forward into the
+  // arrival delta, which is the best signal we have for "how late did this
+  // inbound trip actually run". Skipped when duration is 0 because the
+  // projection would degenerate to arrive = depart and produce noisy badges.
+  const arrive = actualArrive ?? (duration > 0 ? new Date(depart.getTime() + duration * 1000) : undefined);
+
   return {
     routeCode: row.routeCode,
     from,
     to,
     duration,
-    depart: parseStoredDate(row.latestDepart),
-    arrive: row.latestArrive ? parseStoredDate(row.latestArrive) : undefined,
+    depart,
+    arrive,
     scheduledDepart: parseStoredDate(row.scheduledDepart),
     vessel,
     status: row.lastStatus,
@@ -316,14 +325,47 @@ export function attachPreviousSailings<T extends Sailing>(
 export function attachPreviousSailingsToRoute(
   route: Route | undefined,
   routes: Map<string, Route> | undefined,
+  scheduledListByRoute?: Map<string, Date[]>,
 ): Route | undefined {
   if (!route || !routes) return route;
   if (typeof localStorage === 'undefined') return route;
   const state = loadHistory();
   if (state.sailings.length === 0) return route;
 
-  const sailings = route.sailings.map((sailing) => attachPreviousSailings(sailing, state, routes));
+  const sailings = route.sailings.map((sailing) => {
+    const enhanced = attachPreviousSailings(sailing, state, routes);
+    if (!enhanced.previousSailings || !scheduledListByRoute?.size) return enhanced;
+    // Override each previous sailing's scheduledDepart with the closest
+    // dailySchedule entry for ITS route (forward or reverse). Stored
+    // scheduledDepart is often contaminated by the API's windowed observation
+    // pattern — if we caught the sailing while a different one with a nearby
+    // scheduled time was the only match candidate, findMatch glued the rows
+    // together and the wrong scheduledDepart stuck.
+    const previousSailings = enhanced.previousSailings.map((prev) => {
+      const scheduledList = scheduledListByRoute.get(prev.routeCode);
+      if (!scheduledList?.length) return prev;
+      const closest = findClosestScheduled(prev.depart, scheduledList);
+      if (!closest) return prev;
+      return { ...prev, scheduledDepart: closest };
+    });
+    return { ...enhanced, previousSailings };
+  });
   return { ...route, sailings };
+}
+
+function findClosestScheduled(depart: Date, scheduledList: Date[]): Date | undefined {
+  const departMs = depart.getTime();
+  let best: Date | undefined;
+  let bestDelta = Infinity;
+  for (const s of scheduledList) {
+    const delta = Math.abs(s.getTime() - departMs);
+    if (delta > 60 * 60 * 1000) continue;
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      best = s;
+    }
+  }
+  return best;
 }
 
 export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Data {

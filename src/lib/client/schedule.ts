@@ -44,6 +44,32 @@ function parseScheduleDurationSeconds(value: string): number {
   return parseInt(match[1]) * 3600 + parseInt(match[2]) * 60;
 }
 
+/**
+ * Construct a routes Map with duration overrides applied for both the current
+ * (forward) route and its reverse leg, using each direction's own dailySchedule.
+ * This is what attachPreviousSailingsToRoute needs in order to compute correct
+ * duration-dependent badges (totalDelay, projected arrive) for prior sailings
+ * on either direction.
+ */
+export function buildEnrichedRoutes(
+  routes: Map<string, Route> | undefined,
+  selectedRoute: Route | undefined,
+  reverseDailySchedule: DailySchedule | null | undefined,
+): Map<string, Route> | undefined {
+  if (!routes) return routes;
+  const map = new Map(routes);
+  if (selectedRoute) {
+    map.set(selectedRoute.id, selectedRoute);
+    const reverseId = `${selectedRoute.to}${selectedRoute.from}`;
+    const reverse = map.get(reverseId);
+    if (reverse) {
+      const enriched = applyDurationOverride(reverse, reverseDailySchedule);
+      if (enriched) map.set(reverseId, enriched);
+    }
+  }
+  return map;
+}
+
 export function buildScheduledList(dailySchedule: DailySchedule | null | undefined): Date[] {
   if (!dailySchedule?.sailings?.length) return [];
   return dailySchedule.sailings

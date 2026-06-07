@@ -6,6 +6,7 @@
   import {
     applyDurationOverride,
     applyScheduleOverride,
+    buildEnrichedRoutes,
     buildScheduledList,
     injectMissingSailings,
     persistScheduleCorrections,
@@ -31,8 +32,11 @@
   $: slug = $page.params.slug;
   // scrapemyferry's published dailySchedule is the authoritative source for
   // scheduledDepart — recomputed once when SSR data refreshes, then applied
-  // to every live update.
+  // to every live update. Both forward and reverse direction lists feed the
+  // previousSailings override so inbound prior trips (reverse route) get
+  // proper scheduledDepart instead of stale stored values.
   $: scheduledList = buildScheduledList(data.dailySchedule);
+  $: reverseScheduledList = buildScheduledList(data.reverseDailySchedule);
   // Apply override against the slice the live API returned (this is what we
   // want to reconcile back to localStorage). injectMissingSailings then fills
   // in the rest of today from dailySchedule so the UI shows the full day.
@@ -44,13 +48,18 @@
     scheduledList,
   );
   $: persistScheduleCorrections(liveRoute);
+  // Routes map with duration overrides applied for both forward and reverse
+  // legs, so prior-sailing lookups on either direction get correct duration.
+  $: enrichedRoutes = buildEnrichedRoutes(liveData?.routes, liveRoute, data.reverseDailySchedule);
+  $: scheduledListByRoute = buildScheduledListByRoute(liveRoute, scheduledList, reverseScheduledList);
   // injectMissingSailings runs after mergeWithHistory, so its synthesized
   // sailings never got their previousSailings attached during polling. Re-run
   // the attach pass over the full post-inject list so injected sailings show
   // the same recent-vessel-history rows as live sailings do.
   $: selectedRoute = attachPreviousSailingsToRoute(
     injectMissingSailings(liveRoute, data.dailySchedule, data.conditions),
-    liveData?.routes,
+    enrichedRoutes,
+    scheduledListByRoute,
   );
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
   $: links = buildLinks(data.conditions?.links);
@@ -84,6 +93,18 @@
       map.set(entry.scheduled, enrichment);
     }
     return map;
+  }
+
+  function buildScheduledListByRoute(
+    route: ReturnType<typeof loadRouteFromSlug>,
+    forward: Date[],
+    reverse: Date[],
+  ): Map<string, Date[]> | undefined {
+    if (!route) return;
+    const map = new Map<string, Date[]>();
+    if (forward.length) map.set(route.id, forward);
+    if (reverse.length) map.set(`${route.to}${route.from}`, reverse);
+    return map.size > 0 ? map : undefined;
   }
 
   function buildLinks(raw: CurrentConditionsBeta['links'] | undefined): SailingLinks | undefined {

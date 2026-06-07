@@ -46,23 +46,37 @@ export async function loadStaticContext(slug?: string): Promise<StaticContext> {
 
   if (!pair) {
     const routes = await routesPromise;
-    return { routes, conditions: null, arrivalConditions: null, dailySchedule: null };
+    return {
+      routes,
+      conditions: null,
+      arrivalConditions: null,
+      dailySchedule: null,
+      reverseDailySchedule: null,
+    };
   }
 
   const { from, to } = pair;
-  const [routes, conditions, arrivalConditions, dailySchedule] = await Promise.all([
-    routesPromise,
-    cached(`conditions:${from}-${to}`, TTL_MS.conditions, () =>
-      source.currentConditionsBeta(from, to),
-    ),
-    // Second scrape for the reverse direction so we can show the arrival
-    // terminal's address. The conditions payload always carries info for the
-    // "from" terminal, so flipping the args is the only way to get the other.
-    cached(`conditions:${to}-${from}`, TTL_MS.conditions, () =>
-      source.currentConditionsBeta(to, from),
-    ),
-    cached(`daily:${from}-${to}`, TTL_MS.dailySchedule, () => source.dailySchedule(from, to)),
-  ]);
+  const [routes, conditions, arrivalConditions, dailySchedule, reverseDailySchedule] =
+    await Promise.all([
+      routesPromise,
+      cached(`conditions:${from}-${to}`, TTL_MS.conditions, () =>
+        source.currentConditionsBeta(from, to),
+      ),
+      // Second conditions scrape for the reverse direction so we can show the
+      // arrival terminal's address. The conditions payload always carries info
+      // for the "from" terminal, so flipping the args is the only way to get
+      // the other.
+      cached(`conditions:${to}-${from}`, TTL_MS.conditions, () =>
+        source.currentConditionsBeta(to, from),
+      ),
+      cached(`daily:${from}-${to}`, TTL_MS.dailySchedule, () => source.dailySchedule(from, to)),
+      // Reverse-leg dailySchedule lets us override scheduledDepart and
+      // duration for previousSailings on the reverse route (the same vessel's
+      // inbound trips). Without this, reverse-leg rows fall back to stored
+      // localStorage data which is often contaminated by the live API's
+      // windowed observation pattern.
+      cached(`daily:${to}-${from}`, TTL_MS.dailySchedule, () => source.dailySchedule(to, from)),
+    ]);
 
-  return { routes, conditions, arrivalConditions, dailySchedule };
+  return { routes, conditions, arrivalConditions, dailySchedule, reverseDailySchedule };
 }
