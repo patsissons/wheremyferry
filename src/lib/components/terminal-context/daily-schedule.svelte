@@ -10,6 +10,7 @@
   type Enrichment = {
     vessel: { name: string; url: string };
     availableSpace?: number;
+    actualArrive?: string;
   };
 
   $: enrichment = buildEnrichment(upcoming, arrivedUnderway);
@@ -22,7 +23,7 @@
     // arrivedUnderway first so upcoming wins if a sailing somehow appears in
     // both (shouldn't normally happen but cheap belt-and-suspenders).
     for (const a of arrivedUnderway ?? []) {
-      map.set(a.scheduled, { vessel: a.vessel });
+      map.set(a.scheduled, { vessel: a.vessel, actualArrive: a.arrived || undefined });
     }
     for (const u of upcoming ?? []) {
       map.set(u.scheduled, { vessel: u.vessel, availableSpace: u.availableSpace });
@@ -50,7 +51,7 @@
             {#if info?.availableSpace !== undefined}
               <SpaceAvailable availableSpace={info.availableSpace} />
             {:else}
-              <span class="text-muted-foreground">→ {sailing.arrive}</span>
+              <span class="text-muted-foreground">→ {info?.actualArrive ?? sailing.arrive}</span>
             {/if}
           </span>
         </li>
