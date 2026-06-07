@@ -16,7 +16,8 @@
   $: ({ conditions, dailySchedule, routes } = staticContext);
   $: slug = $page.params.slug;
   $: pair = parseSlug(slug);
-  $: destinationName = findDestinationName(routes, pair) ?? pair?.to ?? 'Route';
+  $: terminalName =
+    conditions?.terminal?.name ?? findFromName(routes, pair) ?? pair?.from ?? 'Route';
   $: directionsUrl = buildDirectionsUrl(conditions);
   $: hasAny =
     !!conditions?.terminal ||
@@ -31,17 +32,14 @@
     return { from: match[1], to: match[2] };
   }
 
-  function findDestinationName(
+  function findFromName(
     routes: Routes | null,
     pair: { from: string; to: string } | undefined,
   ) {
     if (!routes || !pair) return;
     for (const region of routes.regions) {
       for (const from of region.from) {
-        if (from.code !== pair.from) continue;
-        for (const to of from.to) {
-          if (to.code === pair.to) return to.name;
-        }
+        if (from.code === pair.from) return from.name;
       }
     }
   }
@@ -93,7 +91,7 @@
     <Accordion.Item value="context" class="border-0">
       <div class="flex w-full items-center gap-2">
         <Accordion.Trigger class="flex-1 py-1 text-left text-sm font-semibold">
-          {destinationName} details
+          {terminalName} details
         </Accordion.Trigger>
         {#if directionsUrl}
           <a
