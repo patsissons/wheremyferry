@@ -38,6 +38,9 @@
     "vite": "^5.4.3"
   },
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "bits-ui": "^0.21.13",
     "clsx": "^2.1.1",
