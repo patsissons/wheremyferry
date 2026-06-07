@@ -39,7 +39,12 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios-cookiejar-support": "^6"
+    }
   },
   "dependencies": {
     "bits-ui": "^0.21.13",
