@@ -13,6 +13,7 @@
     persistScheduleCorrections,
     type PrevSailingScrapeSource,
   } from '$lib/client/schedule';
+  import BounceLoader from '$lib/components/bounce-loader.svelte';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
   import TerminalSailings from '$lib/components/terminal-sailings/terminal-sailings.svelte';
   import TerminalContext from '$lib/components/terminal-context/terminal-context.svelte';
@@ -177,31 +178,33 @@
   {#if slug}
     <TerminalContext staticContext={data} />
   {/if}
-  {#if liveData}
-    {#if selectedRoute}
-      <TerminalSailings route={selectedRoute} timestamp={liveData.timestamp} {enrichment} {links} />
-      {#if liveData.timestamp}
-        <div class="w-full justify-self-center rounded-md bg-muted px-2 py-1">
-          <p class="text-center text-xs italic leading-none text-muted-foreground">
-            <PeriodicRefresh>
-              <svelte:fragment let:now>
-                {@const elapsed = formatElapsed((now - liveData.timestamp.getTime()) / 1000)}
-                updated
-                {#if elapsed.value}
-                  <code class="font-medium">{elapsed.value}</code>
-                {/if}
-                {#if elapsed.unit}
-                  {elapsed.unit}
-                {/if}
-                {#if elapsed.value}
-                  ago
-                {/if}
-                ({formatTimestamp(liveData.timestamp)})
-              </svelte:fragment>
-            </PeriodicRefresh>
-          </p>
-        </div>
-      {/if}
+  {#if !liveData}
+    <div class="grid h-full place-content-center text-primary">
+      <BounceLoader />
+    </div>
+  {:else if selectedRoute}
+    <TerminalSailings route={selectedRoute} timestamp={liveData.timestamp} {enrichment} {links} />
+    {#if liveData.timestamp}
+      <div class="w-full justify-self-center rounded-md bg-muted px-2 py-1">
+        <p class="text-center text-xs italic leading-none text-muted-foreground">
+          <PeriodicRefresh>
+            <svelte:fragment let:now>
+              {@const elapsed = formatElapsed((now - liveData.timestamp.getTime()) / 1000)}
+              updated
+              {#if elapsed.value}
+                <code class="font-medium">{elapsed.value}</code>
+              {/if}
+              {#if elapsed.unit}
+                {elapsed.unit}
+              {/if}
+              {#if elapsed.value}
+                ago
+              {/if}
+              ({formatTimestamp(liveData.timestamp)})
+            </svelte:fragment>
+          </PeriodicRefresh>
+        </p>
+      </div>
     {/if}
   {/if}
 </main>
