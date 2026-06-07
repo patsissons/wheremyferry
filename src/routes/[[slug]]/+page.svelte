@@ -2,6 +2,11 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { poll, type Data } from '$lib/client';
+  import {
+    applyScheduleOverride,
+    buildScheduledList,
+    persistScheduleCorrections,
+  } from '$lib/client/schedule';
   import TerminalHeader from '$lib/components/terminal-header.svelte';
   import TerminalSailings from '$lib/components/terminal-sailings/terminal-sailings.svelte';
   import TerminalContext from '$lib/components/terminal-context/terminal-context.svelte';
@@ -21,7 +26,15 @@
   let liveData: Data | undefined;
 
   $: slug = $page.params.slug;
-  $: selectedRoute = loadRouteFromSlug(liveData, slug);
+  // scrapemyferry's published dailySchedule is the authoritative source for
+  // scheduledDepart — recomputed once when SSR data refreshes, then applied
+  // to every live update.
+  $: scheduledList = buildScheduledList(data.dailySchedule);
+  $: selectedRoute = applyScheduleOverride(loadRouteFromSlug(liveData, slug), scheduledList);
+  // Reconcile localStorage with the corrected scheduledDepart so features
+  // that read directly from history (previousSailings) also benefit. Cheap
+  // when nothing changed (early-returns before touching localStorage).
+  $: persistScheduleCorrections(selectedRoute);
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
   $: links = buildLinks(data.conditions?.links);
 

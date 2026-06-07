@@ -124,3 +124,18 @@ export function currentConditionsUrl(from: string, to: string) {
 export function vesselFinderUrl(id: number) {
   return `https://www.vesselfinder.com/vessels/details/${id}`;
 }
+
+/**
+ * Parse a wall-clock time string like "7:30 am" / "10:25 PM" into a Date at
+ * today's local date with seconds/ms zeroed. Case-insensitive. Returns
+ * undefined when the input doesn't match the expected shape.
+ */
+export function parseWallClockTime(value: string): Date | undefined {
+  const match = /^(\d+):(\d+)\s+(AM|PM|am|pm)$/.exec(value.trim());
+  if (!match) return;
+  const hours = (parseInt(match[1]) % 12) + (match[3].toLowerCase() === 'pm' ? 12 : 0);
+  const minutes = parseInt(match[2]);
+  const d = new Date();
+  d.setHours(hours, minutes, 0, 0);
+  return d;
+}

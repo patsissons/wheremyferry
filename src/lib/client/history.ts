@@ -86,6 +86,71 @@ function parseStoredDate(iso: string): Date {
   return d;
 }
 
+export interface ScheduledDepartCorrection {
+  /** matches stored row.latestDepart (which always equals the live sailing's
+   *  depart after the most recent upsertFromApi pass) */
+  latestDepartIso: string;
+  scheduledDepartIso: string;
+}
+
+/**
+ * Update stored rows' scheduledDepart when scrapemyferry's published schedule
+ * disagrees with what we recorded. Without this, sailings learned during the
+ * API "blind spot" (page first loaded after the sailing went current/past)
+ * would forever have scheduledDepart === actualDepart, hiding the real delay.
+ *
+ * Limited to the given routeId — we only have authoritative dailySchedule for
+ * the currently-selected route, so we never touch other routes' rows.
+ *
+ * If a correction would produce a (routeCode, scheduledDepart) duplicate of
+ * another row, the more recently seen one wins and the older copy is dropped.
+ */
+export function reconcileScheduledDepartures(
+  state: HistoryState,
+  routeId: string,
+  corrections: ScheduledDepartCorrection[],
+): HistoryState {
+  if (corrections.length === 0) return state;
+
+  const correctionByDepart = new Map<string, string>();
+  for (const c of corrections) correctionByDepart.set(c.latestDepartIso, c.scheduledDepartIso);
+
+  let mutated = false;
+  const updated = state.sailings.map((row) => {
+    if (row.routeCode !== routeId) return row;
+    const corrected = correctionByDepart.get(row.latestDepart);
+    if (!corrected || corrected === row.scheduledDepart) return row;
+    mutated = true;
+    return { ...row, scheduledDepart: corrected };
+  });
+
+  if (!mutated) return state;
+
+  // Dedupe by (routeCode, scheduledDepart); keep the most recently seen row.
+  // Walks every row, not just routeId — cheap and prevents stale duplicates
+  // from any prior bad correction.
+  const byKey = new Map<string, StoredSailing>();
+  for (const row of updated) {
+    const key = `${row.routeCode}|${row.scheduledDepart}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      continue;
+    }
+    const existingSeen = Date.parse(existing.lastSeenAt);
+    const rowSeen = Date.parse(row.lastSeenAt);
+    if (Number.isFinite(rowSeen) && (!Number.isFinite(existingSeen) || rowSeen >= existingSeen)) {
+      byKey.set(key, row);
+    }
+  }
+
+  return {
+    version: STORAGE_VERSION,
+    updatedAt: new Date().toISOString(),
+    sailings: Array.from(byKey.values()),
+  };
+}
+
 export function pruneHistory(state: HistoryState, now: Date): HistoryState {
   const cutoff = now.getTime() - HISTORY_CONFIG.windowMs;
   const sailings = state.sailings.filter((row) => {
