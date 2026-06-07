@@ -199,12 +199,14 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
         // we can't parse these, so exit early
         if (!value || value === 'Variable' || value === '...') return value;
 
-        const match = /^(\d+):(\d+) (am|pm)$/.exec(value);
+        const match = /^(\d+):(\d+) (am|pm)$/i.exec(value);
         if (!match) return warnTime();
 
         const [hours, minutes, period] = match.slice(1);
         const parsedDate = new Date();
-        parsedDate.setHours((parseInt(hours) % 12) + (period === 'pm' ? 12 : 0));
+        parsedDate.setHours(
+          (parseInt(hours) % 12) + (period.toLowerCase() === 'pm' ? 12 : 0),
+        );
         parsedDate.setMinutes(parseInt(minutes));
         parsedDate.setSeconds(0);
 
