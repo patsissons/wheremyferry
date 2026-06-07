@@ -209,6 +209,7 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
         );
         parsedDate.setMinutes(parseInt(minutes));
         parsedDate.setSeconds(0);
+        parsedDate.setMilliseconds(0);
 
         return parsedDate;
 

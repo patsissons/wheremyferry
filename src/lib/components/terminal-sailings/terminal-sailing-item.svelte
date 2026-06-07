@@ -75,7 +75,10 @@
     // keeps growing tick-by-tick until the API catches up.
     const effective = status === 'future' && depart.getTime() < now ? now : depart.getTime();
 
-    const minutes = Math.trunc((effective - scheduledDepart.getTime()) / 60_000);
+    // Math.round (not Math.trunc) so residual subsecond drift between when
+    // scheduledDepart was stored and when depart was re-parsed doesn't push a
+    // clean -1 minute to 0 (e.g. -59_667 ms truncs to 0 but rounds to -1).
+    const minutes = Math.round((effective - scheduledDepart.getTime()) / 60_000);
     if (minutes === 0) return;
     // before the scheduled depart, a positive delta is just a forecast shift,
     // not a real delay — only surface it once the sailing has actually reached

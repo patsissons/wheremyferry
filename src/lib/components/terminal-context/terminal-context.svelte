@@ -50,7 +50,7 @@
     const hours = (parseInt(match[1]) % 12) + (match[3].toLowerCase() === 'pm' ? 12 : 0);
     const minutes = parseInt(match[2]);
     const d = new Date();
-    d.setHours(hours, minutes, 0, 0);
+    d.setHours(hours, minutes, 0, 0); // already zeroes ms via the 4th arg
     return d;
   }
 

@@ -72,6 +72,16 @@ export function saveHistory(state: HistoryState): void {
   }
 }
 
+// Stored ISO strings from before parseTime started zeroing ms can carry
+// residual subseconds. Clamp to minute precision when rehydrating so any
+// arithmetic against these Dates (depart delay, total duration, over/under)
+// stays minute-aligned.
+function parseStoredDate(iso: string): Date {
+  const d = new Date(iso);
+  d.setSeconds(0, 0);
+  return d;
+}
+
 export function pruneHistory(state: HistoryState, now: Date): HistoryState {
   const cutoff = now.getTime() - HISTORY_CONFIG.windowMs;
   const sailings = state.sailings.filter((row) => {
@@ -177,7 +187,7 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
       const match = findMatch(state.sailings, route.id, sailing.depart, matchedScheduled);
       if (!match) return sailing;
       matchedScheduled.add(match.scheduledDepart);
-      return { ...sailing, scheduledDepart: new Date(match.scheduledDepart) };
+      return { ...sailing, scheduledDepart: parseStoredDate(match.scheduledDepart) };
     });
 
     const injected: Sailing[] = [];
@@ -199,9 +209,9 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
         : undefined;
 
       injected.push({
-        depart: new Date(stored.latestDepart),
-        arrive: stored.latestArrive ? new Date(stored.latestArrive) : undefined,
-        scheduledDepart: scheduled,
+        depart: parseStoredDate(stored.latestDepart),
+        arrive: stored.latestArrive ? parseStoredDate(stored.latestArrive) : undefined,
+        scheduledDepart: parseStoredDate(stored.scheduledDepart),
         vessel,
         status: 'departing',
       });
