@@ -243,10 +243,7 @@ export function upsertFromApi(state: HistoryState, data: Data, now: Date): Histo
   return { version: STORAGE_VERSION, updatedAt: nowIso, sailings: rows };
 }
 
-function buildPreviousSailing(
-  row: StoredSailing,
-  routes: Map<string, Route>,
-): PreviousSailing {
+function buildPreviousSailing(row: StoredSailing, routes: Map<string, Route>): PreviousSailing {
   const route = routes.get(row.routeCode);
   // routeCode is from+to concatenated (e.g. "HSBLNG"); fall back to splitting
   // it if the route isn't currently in the API payload (vessel briefly served
