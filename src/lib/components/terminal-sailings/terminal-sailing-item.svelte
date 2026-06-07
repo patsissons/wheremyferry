@@ -230,7 +230,7 @@
         {/if}
         <li>
           <Link href={currentConditionsUrl(from, to)} external>
-            Current conditions for this route
+            {`Current conditions for ${from} → ${to}`}
           </Link>
         </li>
       </ul>
