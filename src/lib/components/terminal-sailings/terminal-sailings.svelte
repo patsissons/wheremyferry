@@ -1,16 +1,26 @@
 <script lang="ts">
   import Link from '$lib/components/link.svelte';
   import type { Route, Sailing } from '$lib/client';
-  import { seasonalSailingsUrl } from '$lib/utils';
+  import { formatTime, seasonalSailingsUrl } from '$lib/utils';
   import * as Accordion from '../ui/accordion';
   import TerminalSailingItem from './terminal-sailing-item.svelte';
+  import type { EnrichmentMap, SailingLinks } from './types';
 
   export let route: Route;
   export let timestamp: Date;
+  export let enrichment: EnrichmentMap | undefined = undefined;
+  export let links: SailingLinks | undefined = undefined;
 
   function sailingKey({ scheduledDepart, depart }: Sailing) {
     const key = scheduledDepart ?? depart;
     return key instanceof Date ? key.toISOString() : key;
+  }
+
+  function enrichmentFor(sailing: Sailing) {
+    if (!enrichment) return;
+    const target = sailing.scheduledDepart ?? sailing.depart;
+    if (!(target instanceof Date)) return;
+    return enrichment.get(formatTime(target));
   }
 </script>
 
@@ -24,6 +34,8 @@
           {timestamp}
           from={route.from}
           to={route.to}
+          enrichment={enrichmentFor(sailing)}
+          {links}
         />
       {/each}
     </Accordion.Root>

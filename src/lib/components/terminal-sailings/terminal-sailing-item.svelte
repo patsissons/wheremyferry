@@ -8,6 +8,7 @@
     formatTimestamp,
     vesselFinderUrl,
   } from '$lib/utils';
+  import type { SailingEnrichment, SailingLinks } from './types';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
   import * as Accordion from '../ui/accordion';
@@ -20,6 +21,8 @@
   export let timestamp: Date;
   export let from: string;
   export let to: string;
+  export let enrichment: SailingEnrichment | undefined = undefined;
+  export let links: SailingLinks | undefined = undefined;
 
   $: value = typeof sailing.depart === 'string' ? sailing.depart : sailing.depart.toISOString();
   $: vessel = 'vessel' in sailing ? sailing.vessel : undefined;
@@ -200,6 +203,24 @@
           <span class="text-md">Overflow</span>
         </div>
       {/if}
+      {#if enrichment?.checkinOpensAt || enrichment?.spaceReleasedAt}
+        <div
+          class="grid grid-cols-2 items-baseline gap-x-3 gap-y-1 rounded border border-muted-foreground/40 bg-background/40 px-3 py-2 text-xs"
+        >
+          {#if enrichment.checkinOpensAt}
+            <span class="text-muted-foreground">Check-in opens</span>
+            <span class="font-mono">{enrichment.checkinOpensAt}</span>
+          {/if}
+          {#if enrichment.spaceReleasedAt}
+            <span class="text-muted-foreground">Space released</span>
+            <span class="font-mono">{enrichment.spaceReleasedAt}</span>
+          {/if}
+          {#if typeof enrichment.availableSpace === 'number'}
+            <span class="text-muted-foreground">Space available</span>
+            <span class="font-mono">{Math.round(enrichment.availableSpace * 100)}%</span>
+          {/if}
+        </div>
+      {/if}
       <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
         {#if sailing.scheduledDepart instanceof Date}
           <li>
@@ -229,10 +250,20 @@
           </li>
         {/if}
         <li>
-          <Link href={currentConditionsUrl(from, to)} external>
+          <Link href={links?.conditions ?? currentConditionsUrl(from, to)} external>
             {`Current conditions for ${from} → ${to}`}
           </Link>
         </li>
+        {#if links?.booking}
+          <li>
+            <Link href={links.booking} external>Book this sailing</Link>
+          </li>
+        {/if}
+        {#if links?.schedule}
+          <li>
+            <Link href={links.schedule} external>Full schedule</Link>
+          </li>
+        {/if}
       </ul>
       <p class="text-center text-xs italic text-muted-foreground">
         Data was updated at
