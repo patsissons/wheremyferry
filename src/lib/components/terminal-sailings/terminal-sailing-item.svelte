@@ -239,7 +239,7 @@
         {/if}
         {#if totalDuration}
           <li>
-            Total duration:
+            Total time from scheduled departure:
             <span class="font-mono">{formatDuration(totalDuration)}</span>
             {#if totalDelay}
               <span
