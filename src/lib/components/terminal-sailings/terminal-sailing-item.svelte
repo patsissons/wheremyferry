@@ -151,7 +151,7 @@
   {value}
   class="gap-4 rounded-lg border border-muted-foreground bg-muted transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30 {sailing.status ===
   'past'
-    ? 'opacity-75'
+    ? 'opacity-50 hover:opacity-75'
     : ''}"
 >
   <Accordion.Trigger class="px-4 py-2" on:click={handleClick}>
