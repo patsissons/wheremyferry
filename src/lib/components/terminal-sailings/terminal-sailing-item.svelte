@@ -262,16 +262,6 @@
   </Accordion.Trigger>
   <Accordion.Content>
     <div class="flex flex-col gap-2 transition-all">
-      {#if previousSailings.length > 0}
-        <div class="flex flex-col gap-1">
-          <h4 class="px-1 text-xs uppercase tracking-wide text-muted-foreground">
-            Recent {vessel?.name ?? 'vessel'} sailings
-          </h4>
-          {#each previousSailings as prev (prev.routeCode + prev.depart.toISOString())}
-            <PreviousSailingRow sailing={prev} referenceFrom={from} />
-          {/each}
-        </div>
-      {/if}
       {#if !sailing.arrive && 'fill' in sailing && sailing.fill > 0 && (sailing.carFill > 0 || sailing.oversizeFill > 0)}
         <div class="grid grid-cols-2 grid-rows-2 place-items-center">
           <SailingFill fill={sailing.carFill} />
@@ -316,14 +306,14 @@
         </div>
       {/if}
       <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
-        {#if sailing.scheduledDepart instanceof Date}
-          <li>
+        {#if sailing.status !== 'future' && sailing.scheduledDepart instanceof Date}
+          <li class="font-bold">
             Original departure:
             <span class="font-mono">{formatSailingTime(sailing.scheduledDepart)}</span>
           </li>
         {/if}
-        {#if originalArrive}
-          <li>
+        {#if sailing.status !== 'future' && originalArrive}
+          <li class="font-bold">
             Original estimated arrival:
             <span class="font-mono">{formatSailingTime(originalArrive)}</span>
           </li>
@@ -359,6 +349,16 @@
           </li>
         {/if}
       </ul>
+      {#if previousSailings.length > 0}
+        <div class="mt-4 flex flex-col gap-1">
+          <h4 class="px-1 text-xs uppercase tracking-wide text-muted-foreground">
+            Recent {vessel?.name ?? 'vessel'} sailings
+          </h4>
+          {#each previousSailings as prev (prev.routeCode + prev.depart.toISOString())}
+            <PreviousSailingRow sailing={prev} referenceFrom={from} />
+          {/each}
+        </div>
+      {/if}
       <p class="text-center text-xs italic text-muted-foreground">
         Data was updated at
         <span class="font-mono">{formatTimestamp(timestamp)}</span>
