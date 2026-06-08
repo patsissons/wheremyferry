@@ -1,13 +1,7 @@
 <script lang="ts">
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
-  import {
-    currentConditionsUrl,
-    formatDuration,
-    formatTime,
-    formatTimestamp,
-    vesselFinderUrl,
-  } from '$lib/utils';
+  import { formatDuration, formatTime, formatTimestamp, vesselFinderUrl } from '$lib/utils';
   import type { SailingEnrichment, SailingLinks } from './types';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
@@ -66,6 +60,11 @@
   $: value = typeof sailing.depart === 'string' ? sailing.depart : sailing.depart.toISOString();
   $: vessel = 'vessel' in sailing ? sailing.vessel : undefined;
   $: showDebug = isDev || location.search.includes('debug');
+  $: displayArrive =
+    sailing.arrive ||
+    (sailing.depart instanceof Date && duration > 0
+      ? new Date(sailing.depart.getTime() + duration * 1000)
+      : undefined);
   $: originalArrive =
     sailing.scheduledDepart instanceof Date && duration > 0
       ? new Date(sailing.scheduledDepart.getTime() + duration * 1000)
@@ -77,6 +76,10 @@
       ? Math.trunc((sailing.arrive.getTime() - sailing.scheduledDepart.getTime()) / 1000)
       : undefined;
   $: totalDelay = totalDuration && duration > 0 ? totalDuration - duration : undefined;
+  $: hasBullets =
+    (sailing.status !== 'future' && sailing.scheduledDepart instanceof Date) ||
+    (sailing.status !== 'future' && !!originalArrive) ||
+    !!totalDuration;
 
   function calcProgress(depart: Date, arrive: Date | string | undefined, duration: number) {
     const now = Date.now();
@@ -146,7 +149,10 @@
 
 <Accordion.Item
   {value}
-  class="gap-4 rounded-lg border border-muted-foreground bg-muted transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30"
+  class="gap-4 rounded-lg border border-muted-foreground bg-muted transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30 {sailing.status ===
+  'past'
+    ? 'opacity-75'
+    : ''}"
 >
   <Accordion.Trigger class="px-4 py-2" on:click={handleClick}>
     <div class="flex w-full flex-col gap-1">
@@ -161,8 +167,8 @@
         </div>
         <div class="justify-self-end whitespace-nowrap text-2xl font-bold leading-none">
           <h3>
-            {#if sailing.arrive}
-              {formatSailingTime(sailing.arrive)}
+            {#if displayArrive}
+              {formatSailingTime(displayArrive)}
             {:else if 'fill' in sailing}
               <SailingFill fill={sailing.fill} />
             {/if}
@@ -209,18 +215,29 @@
         </div>
         <div class="self-start justify-self-end text-right">
           <div class="flex flex-wrap justify-end gap-1 text-right">
-            <SailingElapsed timestamp={sailing.arrive}>
-              {@const overunder = calcOverUnder(sailing, duration)}
-              {#if overunder}
-                <span
-                  class="whitespace-nowrap font-mono"
-                  class:text-success={overunder < 0}
-                  class:text-failure={overunder > 0}
-                >
-                  ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
-                </span>
-              {/if}
-            </SailingElapsed>
+            {#if sailing.status === 'future' && 'fill' in sailing}
+              <span
+                class="whitespace-nowrap font-mono font-bold"
+                class:text-success={sailing.fill < 50}
+                class:text-warning={sailing.fill >= 50 && sailing.fill < 75}
+                class:text-failure={sailing.fill >= 75}
+              >
+                {sailing.fill}%
+              </span>
+            {:else}
+              <SailingElapsed timestamp={sailing.arrive}>
+                {@const overunder = calcOverUnder(sailing, duration)}
+                {#if overunder}
+                  <span
+                    class="whitespace-nowrap font-mono"
+                    class:text-success={overunder < 0}
+                    class:text-failure={overunder > 0}
+                  >
+                    ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
+                  </span>
+                {/if}
+              </SailingElapsed>
+            {/if}
           </div>
         </div>
       </div>
@@ -243,16 +260,6 @@
   </Accordion.Trigger>
   <Accordion.Content>
     <div class="flex flex-col gap-2 transition-all">
-      {#if previousSailings.length > 0}
-        <div class="flex flex-col gap-1">
-          <h4 class="px-1 text-xs uppercase tracking-wide text-muted-foreground">
-            Recent {vessel?.name ?? 'vessel'} sailings
-          </h4>
-          {#each previousSailings as prev (prev.routeCode + prev.depart.toISOString())}
-            <PreviousSailingRow sailing={prev} referenceFrom={from} />
-          {/each}
-        </div>
-      {/if}
       {#if !sailing.arrive && 'fill' in sailing && sailing.fill > 0 && (sailing.carFill > 0 || sailing.oversizeFill > 0)}
         <div class="grid grid-cols-2 grid-rows-2 place-items-center">
           <SailingFill fill={sailing.carFill} />
@@ -296,50 +303,47 @@
           {/if}
         </div>
       {/if}
-      <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
-        {#if sailing.scheduledDepart instanceof Date}
-          <li>
-            Original departure:
-            <span class="font-mono">{formatSailingTime(sailing.scheduledDepart)}</span>
-          </li>
-        {/if}
-        {#if originalArrive}
-          <li>
-            Original estimated arrival:
-            <span class="font-mono">{formatSailingTime(originalArrive)}</span>
-          </li>
-        {/if}
-        {#if totalDuration}
-          <li>
-            Total time from scheduled departure:
-            <span class="font-mono">{formatDuration(totalDuration)}</span>
-            {#if totalDelay}
-              <span
-                class="font-mono"
-                class:text-success={totalDelay < 0}
-                class:text-failure={totalDelay > 0}
-              >
-                ({`${totalDelay > 0 ? '+' : '-'}${formatDuration(Math.abs(totalDelay))}`})
-              </span>
-            {/if}
-          </li>
-        {/if}
-        <li>
-          <Link href={links?.conditions ?? currentConditionsUrl(from, to)} external>
-            {`Current conditions for ${from} → ${to}`}
-          </Link>
-        </li>
-        {#if links?.booking}
-          <li>
-            <Link href={links.booking} external>Book this sailing</Link>
-          </li>
-        {/if}
-        {#if links?.schedule}
-          <li>
-            <Link href={links.schedule} external>Full schedule</Link>
-          </li>
-        {/if}
-      </ul>
+      {#if hasBullets}
+        <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
+          {#if sailing.status !== 'future' && sailing.scheduledDepart instanceof Date}
+            <li class="font-bold">
+              Original departure:
+              <span class="font-mono">{formatSailingTime(sailing.scheduledDepart)}</span>
+            </li>
+          {/if}
+          {#if sailing.status !== 'future' && originalArrive}
+            <li class="font-bold">
+              Original estimated arrival:
+              <span class="font-mono">{formatSailingTime(originalArrive)}</span>
+            </li>
+          {/if}
+          {#if totalDuration}
+            <li>
+              Total time from scheduled departure:
+              <span class="font-mono">{formatDuration(totalDuration)}</span>
+              {#if totalDelay}
+                <span
+                  class="font-mono"
+                  class:text-success={totalDelay < 0}
+                  class:text-failure={totalDelay > 0}
+                >
+                  ({`${totalDelay > 0 ? '+' : '-'}${formatDuration(Math.abs(totalDelay))}`})
+                </span>
+              {/if}
+            </li>
+          {/if}
+        </ul>
+      {/if}
+      {#if previousSailings.length > 0}
+        <div class="mt-4 flex flex-col gap-1">
+          <h4 class="px-1 text-xs uppercase tracking-wide text-muted-foreground">
+            Recent {vessel?.name ?? 'vessel'} sailings
+          </h4>
+          {#each previousSailings as prev (prev.routeCode + prev.depart.toISOString())}
+            <PreviousSailingRow sailing={prev} referenceFrom={from} />
+          {/each}
+        </div>
+      {/if}
       <p class="text-center text-xs italic text-muted-foreground">
         Data was updated at
         <span class="font-mono">{formatTimestamp(timestamp)}</span>

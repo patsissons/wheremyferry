@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import type { Routes, CurrentConditionsBeta } from 'scrapemyferry';
   import type { StaticContext } from '$lib/server/types';
+  import { currentConditionsUrl } from '$lib/utils';
   import MapIcon from '~icons/ion/map-outline';
   import * as Accordion from '../ui/accordion';
   import Webcams from './webcams.svelte';
@@ -117,7 +118,10 @@
           {/if}
 
           {#if conditions?.links}
-            <Links links={conditions.links} />
+            <Links
+              links={conditions.links}
+              conditionsUrl={pair ? currentConditionsUrl(pair.from, pair.to) : undefined}
+            />
           {/if}
 
           {#if conditions?.cameras?.webcams?.length}

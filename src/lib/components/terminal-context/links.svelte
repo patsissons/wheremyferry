@@ -3,12 +3,14 @@
   import Link from '../link.svelte';
 
   export let links: CurrentConditionsBeta['links'];
+  export let conditionsUrl: string | undefined = undefined;
 
   $: entries = [
     { href: links.booking, label: 'Book' },
     { href: links.schedule, label: 'Full schedule' },
     { href: links.calculateFare, label: 'Fare calculator' },
     { href: links.departuresArrivals, label: 'Departures' },
+    { href: conditionsUrl, label: 'Current conditions' },
   ].filter((e) => !!e.href);
 </script>
 
