@@ -66,6 +66,11 @@
   $: value = typeof sailing.depart === 'string' ? sailing.depart : sailing.depart.toISOString();
   $: vessel = 'vessel' in sailing ? sailing.vessel : undefined;
   $: showDebug = isDev || location.search.includes('debug');
+  $: displayArrive =
+    sailing.arrive ||
+    (sailing.depart instanceof Date && duration > 0
+      ? new Date(sailing.depart.getTime() + duration * 1000)
+      : undefined);
   $: originalArrive =
     sailing.scheduledDepart instanceof Date && duration > 0
       ? new Date(sailing.scheduledDepart.getTime() + duration * 1000)
@@ -161,8 +166,8 @@
         </div>
         <div class="justify-self-end whitespace-nowrap text-2xl font-bold leading-none">
           <h3>
-            {#if sailing.arrive}
-              {formatSailingTime(sailing.arrive)}
+            {#if displayArrive}
+              {formatSailingTime(displayArrive)}
             {:else if 'fill' in sailing}
               <SailingFill fill={sailing.fill} />
             {/if}
@@ -209,18 +214,29 @@
         </div>
         <div class="self-start justify-self-end text-right">
           <div class="flex flex-wrap justify-end gap-1 text-right">
-            <SailingElapsed timestamp={sailing.arrive}>
-              {@const overunder = calcOverUnder(sailing, duration)}
-              {#if overunder}
-                <span
-                  class="whitespace-nowrap font-mono"
-                  class:text-success={overunder < 0}
-                  class:text-failure={overunder > 0}
-                >
-                  ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
-                </span>
-              {/if}
-            </SailingElapsed>
+            {#if sailing.status === 'future' && 'fill' in sailing}
+              <span
+                class="whitespace-nowrap font-mono font-bold"
+                class:text-success={sailing.fill < 50}
+                class:text-warning={sailing.fill >= 50 && sailing.fill < 75}
+                class:text-failure={sailing.fill >= 75}
+              >
+                {sailing.fill}%
+              </span>
+            {:else}
+              <SailingElapsed timestamp={sailing.arrive}>
+                {@const overunder = calcOverUnder(sailing, duration)}
+                {#if overunder}
+                  <span
+                    class="whitespace-nowrap font-mono"
+                    class:text-success={overunder < 0}
+                    class:text-failure={overunder > 0}
+                  >
+                    ({`${overunder > 0 ? '+' : '-'}${formatDuration(Math.abs(overunder))}`})
+                  </span>
+                {/if}
+              </SailingElapsed>
+            {/if}
           </div>
         </div>
       </div>
