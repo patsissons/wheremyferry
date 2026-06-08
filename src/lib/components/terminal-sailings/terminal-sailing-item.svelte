@@ -1,13 +1,7 @@
 <script lang="ts">
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
-  import {
-    currentConditionsUrl,
-    formatDuration,
-    formatTime,
-    formatTimestamp,
-    vesselFinderUrl,
-  } from '$lib/utils';
+  import { formatDuration, formatTime, formatTimestamp, vesselFinderUrl } from '$lib/utils';
   import type { SailingEnrichment, SailingLinks } from './types';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
@@ -82,6 +76,10 @@
       ? Math.trunc((sailing.arrive.getTime() - sailing.scheduledDepart.getTime()) / 1000)
       : undefined;
   $: totalDelay = totalDuration && duration > 0 ? totalDuration - duration : undefined;
+  $: hasBullets =
+    (sailing.status !== 'future' && sailing.scheduledDepart instanceof Date) ||
+    (sailing.status !== 'future' && !!originalArrive) ||
+    !!totalDuration;
 
   function calcProgress(depart: Date, arrive: Date | string | undefined, duration: number) {
     const now = Date.now();
@@ -305,50 +303,37 @@
           {/if}
         </div>
       {/if}
-      <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
-        {#if sailing.status !== 'future' && sailing.scheduledDepart instanceof Date}
-          <li class="font-bold">
-            Original departure:
-            <span class="font-mono">{formatSailingTime(sailing.scheduledDepart)}</span>
-          </li>
-        {/if}
-        {#if sailing.status !== 'future' && originalArrive}
-          <li class="font-bold">
-            Original estimated arrival:
-            <span class="font-mono">{formatSailingTime(originalArrive)}</span>
-          </li>
-        {/if}
-        {#if totalDuration}
-          <li>
-            Total time from scheduled departure:
-            <span class="font-mono">{formatDuration(totalDuration)}</span>
-            {#if totalDelay}
-              <span
-                class="font-mono"
-                class:text-success={totalDelay < 0}
-                class:text-failure={totalDelay > 0}
-              >
-                ({`${totalDelay > 0 ? '+' : '-'}${formatDuration(Math.abs(totalDelay))}`})
-              </span>
-            {/if}
-          </li>
-        {/if}
-        <li>
-          <Link href={links?.conditions ?? currentConditionsUrl(from, to)} external>
-            {`Current conditions for ${from} → ${to}`}
-          </Link>
-        </li>
-        {#if links?.booking}
-          <li>
-            <Link href={links.booking} external>Book this sailing</Link>
-          </li>
-        {/if}
-        {#if links?.schedule}
-          <li>
-            <Link href={links.schedule} external>Full schedule</Link>
-          </li>
-        {/if}
-      </ul>
+      {#if hasBullets}
+        <ul class="list-inside list-disc space-y-1 px-4 text-xs text-muted-foreground">
+          {#if sailing.status !== 'future' && sailing.scheduledDepart instanceof Date}
+            <li class="font-bold">
+              Original departure:
+              <span class="font-mono">{formatSailingTime(sailing.scheduledDepart)}</span>
+            </li>
+          {/if}
+          {#if sailing.status !== 'future' && originalArrive}
+            <li class="font-bold">
+              Original estimated arrival:
+              <span class="font-mono">{formatSailingTime(originalArrive)}</span>
+            </li>
+          {/if}
+          {#if totalDuration}
+            <li>
+              Total time from scheduled departure:
+              <span class="font-mono">{formatDuration(totalDuration)}</span>
+              {#if totalDelay}
+                <span
+                  class="font-mono"
+                  class:text-success={totalDelay < 0}
+                  class:text-failure={totalDelay > 0}
+                >
+                  ({`${totalDelay > 0 ? '+' : '-'}${formatDuration(Math.abs(totalDelay))}`})
+                </span>
+              {/if}
+            </li>
+          {/if}
+        </ul>
+      {/if}
       {#if previousSailings.length > 0}
         <div class="mt-4 flex flex-col gap-1">
           <h4 class="px-1 text-xs uppercase tracking-wide text-muted-foreground">
