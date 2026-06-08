@@ -2,7 +2,7 @@
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
   import { formatDuration, formatTime, formatTimestamp, vesselFinderUrl } from '$lib/utils';
-  import type { SailingEnrichment, SailingLinks } from './types';
+  import type { SailingEnrichment } from './types';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
   import * as Accordion from '../ui/accordion';
@@ -16,9 +16,7 @@
   export let duration: number;
   export let timestamp: Date;
   export let from: string;
-  export let to: string;
   export let enrichment: SailingEnrichment | undefined = undefined;
-  export let links: SailingLinks | undefined = undefined;
 
   $: previousSailings = sailing.previousSailings ?? [];
 

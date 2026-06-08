@@ -4,12 +4,11 @@
   import { formatTime, seasonalSailingsUrl } from '$lib/utils';
   import * as Accordion from '../ui/accordion';
   import TerminalSailingItem from './terminal-sailing-item.svelte';
-  import type { EnrichmentMap, SailingLinks } from './types';
+  import type { EnrichmentMap } from './types';
 
   export let route: Route;
   export let timestamp: Date;
   export let enrichment: EnrichmentMap | undefined = undefined;
-  export let links: SailingLinks | undefined = undefined;
 
   function sailingKey({ scheduledDepart, depart }: Sailing) {
     const key = scheduledDepart ?? depart;
@@ -33,9 +32,7 @@
           duration={route.duration}
           {timestamp}
           from={route.from}
-          to={route.to}
           enrichment={enrichmentFor(sailing)}
-          {links}
         />
       {/each}
     </Accordion.Root>

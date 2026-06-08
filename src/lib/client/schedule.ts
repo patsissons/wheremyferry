@@ -244,22 +244,24 @@ export function findPreviousSailingsFromScrape(
   sources: PrevSailingScrapeSource[],
 ): PreviousSailing[] {
   const cutoffMs = beforeMs - PREVIOUS_SAILING_WINDOW_MS;
+  const nowMs = Date.now();
   type Candidate = { prev: PreviousSailing; departMs: number };
   const candidates: Candidate[] = [];
+  // Dedupe across arrivedUnderway + upcoming (an entry can technically appear
+  // in both during the brief window when a sailing has just left and BC
+  // Ferries hasn't fully migrated it yet).
+  const seenKeys = new Set<string>();
 
   for (const src of sources) {
-    const arrivedUnderway = src.conditions?.arrivedUnderway;
-    if (!arrivedUnderway?.length) continue;
-
     // Per-sailing duration from dailySchedule, keyed by the scheduled time
-    // string used in arrivedUnderway entries.
+    // string used in arrivedUnderway/upcoming entries.
     const durationByScheduled = new Map<string, number>();
     for (const entry of src.dailySchedule?.sailings ?? []) {
       const dur = parseScheduleDurationSeconds(entry.duration);
       if (dur > 0) durationByScheduled.set(entry.depart, dur);
     }
 
-    for (const entry of arrivedUnderway) {
+    for (const entry of src.conditions?.arrivedUnderway ?? []) {
       if (entry.vessel?.name !== vesselName) continue;
       const departed = parseWallClockTime(entry.departed);
       if (!departed) continue;
@@ -274,6 +276,8 @@ export function findPreviousSailingsFromScrape(
       const arrive =
         arrived ?? (duration > 0 ? new Date(departMs + duration * 1000) : undefined);
 
+      const key = `${src.routeCode}|${entry.scheduled}`;
+      seenKeys.add(key);
       candidates.push({
         prev: {
           routeCode: src.routeCode,
@@ -287,6 +291,48 @@ export function findPreviousSailingsFromScrape(
           status: 'past',
         },
         departMs,
+      });
+    }
+
+    // Upcoming sailings (not yet departed at scrape time) are also valid
+    // "previous sailings" when their scheduled depart precedes this sailing —
+    // typically the inbound leg the vessel needs to complete before turning
+    // around. Without this, the most recent prior trip is missed whenever the
+    // 2-minute conditions cache predates the inbound's actual departure.
+    for (const entry of src.conditions?.upcoming ?? []) {
+      if (entry.vessel?.name !== vesselName) continue;
+      const scheduled = parseWallClockTime(entry.scheduled);
+      if (!scheduled) continue;
+      const scheduledMs = scheduled.getTime();
+      if (scheduledMs >= beforeMs || scheduledMs < cutoffMs) continue;
+
+      const key = `${src.routeCode}|${entry.scheduled}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+
+      const etd = parseWallClockTime(entry.etd);
+      const eta = parseWallClockTime(entry.eta);
+      const duration = durationByScheduled.get(entry.scheduled) ?? src.duration;
+      const depart = etd ?? scheduled;
+      const arrive =
+        eta ?? (duration > 0 ? new Date(depart.getTime() + duration * 1000) : undefined);
+      const status: SailingStatus = depart.getTime() > nowMs ? 'future' : 'current';
+
+      candidates.push({
+        prev: {
+          routeCode: src.routeCode,
+          from: src.from,
+          to: src.to,
+          duration,
+          depart,
+          arrive,
+          scheduledDepart: scheduled,
+          vessel: makeVessel(vesselName),
+          status,
+        },
+        // Sort by scheduled time for upcoming entries since etd can drift; this
+        // keeps the chronological ordering stable against arrivedUnderway rows.
+        departMs: scheduledMs,
       });
     }
   }

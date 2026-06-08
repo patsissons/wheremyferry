@@ -21,7 +21,6 @@
   import type {
     EnrichmentMap,
     SailingEnrichment,
-    SailingLinks,
   } from '$lib/components/terminal-sailings/types';
   import type { CurrentConditionsBeta } from 'scrapemyferry';
   import { formatElapsed, formatTimestamp } from '$lib/utils';
@@ -76,7 +75,6 @@
     scheduledListByRoute,
   );
   $: enrichment = buildEnrichmentMap(data.conditions?.upcoming);
-  $: links = buildLinks(data.conditions?.links);
 
   onMount(() => {
     return poll(updated);
@@ -162,13 +160,6 @@
     return sources;
   }
 
-  function buildLinks(raw: CurrentConditionsBeta['links'] | undefined): SailingLinks | undefined {
-    if (!raw) return;
-    return {
-      booking: raw.booking || undefined,
-      schedule: raw.schedule || undefined,
-    };
-  }
 </script>
 
 <main class="container mx-auto grid h-full grid-rows-[auto,auto,1fr,auto] gap-4">
@@ -183,7 +174,7 @@
       <BounceLoader />
     </div>
   {:else if selectedRoute}
-    <TerminalSailings route={selectedRoute} timestamp={liveData.timestamp} {enrichment} {links} />
+    <TerminalSailings route={selectedRoute} timestamp={liveData.timestamp} {enrichment} />
     {#if liveData.timestamp}
       <div class="w-full justify-self-center rounded-md bg-muted px-2 py-1">
         <p class="text-center text-xs italic leading-none text-muted-foreground">

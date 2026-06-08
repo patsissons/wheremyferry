@@ -8,10 +8,4 @@ export type SailingEnrichment = {
   availableSpace?: number;
 };
 
-export type SailingLinks = {
-  booking?: string;
-  schedule?: string;
-  conditions?: string;
-};
-
 export type EnrichmentMap = Map<string, SailingEnrichment>;

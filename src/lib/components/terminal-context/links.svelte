@@ -5,13 +5,16 @@
   export let links: CurrentConditionsBeta['links'];
   export let conditionsUrl: string | undefined = undefined;
 
-  $: entries = [
-    { href: links.booking, label: 'Book' },
-    { href: links.schedule, label: 'Full schedule' },
-    { href: links.calculateFare, label: 'Fare calculator' },
-    { href: links.departuresArrivals, label: 'Departures' },
-    { href: conditionsUrl, label: 'Current conditions' },
-  ].filter((e) => !!e.href);
+  type Entry = { href: string; label: string };
+  $: entries = (
+    [
+      { href: links.booking, label: 'Book' },
+      { href: links.schedule, label: 'Full schedule' },
+      { href: links.calculateFare, label: 'Fare calculator' },
+      { href: links.departuresArrivals, label: 'Departures' },
+      { href: conditionsUrl, label: 'Current conditions' },
+    ] as Array<{ href: string | undefined; label: string }>
+  ).filter((e): e is Entry => !!e.href);
 </script>
 
 {#if entries.length > 0}
