@@ -275,6 +275,13 @@ export function findPreviousSailingsFromScrape(
       // recorded an actual arrival yet (vessel still underway).
       const arrive =
         arrived ?? (duration > 0 ? new Date(departMs + duration * 1000) : undefined);
+      // 'arrivedUnderway' bundles both arrived AND underway sailings. A blank
+      // `arrived` is the clear "still in transit" signal, but BC Ferries
+      // sometimes pre-fills the field with a projected arrival while the
+      // vessel is still underway — so anything whose arrived time is still in
+      // the future is treated as 'current' too.
+      const status: SailingStatus =
+        arrived && arrived.getTime() <= nowMs ? 'past' : 'current';
 
       const key = `${src.routeCode}|${entry.scheduled}`;
       seenKeys.add(key);
@@ -288,7 +295,7 @@ export function findPreviousSailingsFromScrape(
           arrive,
           scheduledDepart: scheduled,
           vessel: makeVessel(vesselName),
-          status: 'past',
+          status,
         },
         departMs,
       });

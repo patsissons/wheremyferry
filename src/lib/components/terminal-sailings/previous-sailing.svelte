@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { PreviousSailing } from '$lib/client';
-  import { formatDuration, formatTime, vesselFinderUrl } from '$lib/utils';
+  import { calcSailingProgress, formatDuration, formatTime, vesselFinderUrl } from '$lib/utils';
   import Link from '../link.svelte';
+  import PeriodicRefresh from '../periodic-refresh.svelte';
+  import Progress from '../ui/progress/progress.svelte';
   import SailingElapsed from './sailing-elapsed.svelte';
 
   export let sailing: PreviousSailing;
@@ -49,7 +51,11 @@
   }
 </script>
 
-<div class="flex w-full flex-col gap-1 bg-background/40 px-4 py-2">
+<div
+  class="flex w-full flex-col gap-1 px-4 py-2 {sailing.status === 'current'
+    ? 'bg-highlight/15 dark:bg-highlight/20'
+    : 'bg-background/40'}"
+>
   <div class="grid grid-cols-[1fr,auto,1fr] items-center leading-none">
     <div class="justify-self-start whitespace-nowrap text-2xl font-bold leading-none">
       <h3>{fmt(sailing.depart)}</h3>
@@ -107,4 +113,19 @@
       </div>
     </div>
   </div>
+
+  {#if sailing.status === 'current'}
+    <PeriodicRefresh>
+      {@const progress = calcSailingProgress(sailing.depart, sailing.arrive, sailing.duration)}
+      {#if progress}
+        <div class="grid">
+          <Progress class="bg-muted-foreground" max={1} value={progress}>
+            <span class="text-xs text-primary-foreground dark:text-primary">
+              {(progress * 100).toFixed(2)}%
+            </span>
+          </Progress>
+        </div>
+      {/if}
+    </PeriodicRefresh>
+  {/if}
 </div>

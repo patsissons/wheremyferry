@@ -126,6 +126,35 @@ export function vesselFinderUrl(id: number) {
 }
 
 /**
+ * Fraction (0..1) of how far into a crossing we are right now, or undefined
+ * when there isn't enough info to derive one. After arrival, returns 1 until
+ * one durationMs has elapsed past arrive, then 0 — keeps the bar visible just
+ * long enough to confirm completion without sticking on stale sailings.
+ */
+export function calcSailingProgress(
+  depart: Date,
+  arrive: Date | string | undefined,
+  duration: number,
+): number | undefined {
+  const now = Date.now();
+  const departTime = depart.getTime();
+  if (now < departTime) return 0;
+
+  const durationMs = duration * 1000;
+
+  if (arrive instanceof Date) {
+    const arriveTime = arrive.getTime();
+    if (now >= arriveTime) {
+      if (now - arriveTime > durationMs) return 0;
+      return 1;
+    }
+    return (now - departTime) / (arriveTime - departTime);
+  } else if (duration > 0) {
+    return Math.max(0, Math.min(1, (now - departTime) / durationMs));
+  }
+}
+
+/**
  * Parse a wall-clock time string like "7:30 am" / "10:25 PM" into a Date at
  * today's local date with seconds/ms zeroed. Case-insensitive. Returns
  * undefined when the input doesn't match the expected shape.

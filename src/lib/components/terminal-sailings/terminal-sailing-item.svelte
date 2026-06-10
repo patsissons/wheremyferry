@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { AnySailing, Sailing } from '$lib/client';
   import { isDev } from '$lib/env';
-  import { formatDuration, formatTime, formatTimestamp, vesselFinderUrl } from '$lib/utils';
+  import {
+    calcSailingProgress,
+    formatDuration,
+    formatTime,
+    formatTimestamp,
+    vesselFinderUrl,
+  } from '$lib/utils';
   import type { SailingEnrichment } from './types';
   import Link from '../link.svelte';
   import PeriodicRefresh from '../periodic-refresh.svelte';
@@ -78,27 +84,7 @@
     (sailing.status !== 'future' && sailing.scheduledDepart instanceof Date) ||
     (sailing.status !== 'future' && !!originalArrive) ||
     !!totalDuration;
-
-  function calcProgress(depart: Date, arrive: Date | string | undefined, duration: number) {
-    const now = Date.now();
-    const departTime = depart.getTime();
-    if (now < departTime) return 0;
-
-    const durationMs = duration * 1000;
-
-    if (arrive instanceof Date) {
-      const arriveTime = arrive.getTime();
-      if (now >= arriveTime) {
-        // if it's long since arrived we don't need to show full progress
-        if (now - arriveTime > durationMs) return 0;
-        return 1;
-      }
-
-      return (now - departTime) / (arriveTime - departTime);
-    } else if (duration > 0) {
-      return Math.max(0, Math.min(1, (now - departTime) / durationMs));
-    }
-  }
+  $: isActive = sailing.status === 'current' || sailing.status === 'departing';
 
   function calcOverUnder({ depart, arrive, status }: Sailing, duration: number) {
     // Skip future sailings: depart/arrive are forecasts (etd/eta or pure
@@ -147,10 +133,9 @@
 
 <Accordion.Item
   {value}
-  class="gap-4 rounded-lg border border-muted-foreground bg-muted transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30 {sailing.status ===
-  'past'
-    ? 'opacity-50 hover:opacity-75'
-    : ''}"
+  class="gap-4 rounded-lg border transition-all hover:bg-muted-foreground/15 dark:hover:bg-muted-foreground/30 {isActive
+    ? 'border-highlight bg-highlight/15 dark:bg-highlight/20'
+    : 'border-muted-foreground bg-muted'} {sailing.status === 'past' ? 'opacity-50 hover:opacity-75' : ''}"
 >
   <Accordion.Trigger class="px-4 py-2" on:click={handleClick}>
     <div class="flex w-full flex-col gap-1">
@@ -242,7 +227,7 @@
 
       {#if sailing.depart instanceof Date && sailing.status === 'current'}
         <PeriodicRefresh>
-          {@const progress = calcProgress(sailing.depart, sailing.arrive, duration)}
+          {@const progress = calcSailingProgress(sailing.depart, sailing.arrive, duration)}
           {#if progress}
             <div class="grid">
               <Progress class="bg-muted-foreground" max={1} value={progress}>
