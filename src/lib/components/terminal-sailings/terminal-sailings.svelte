@@ -10,9 +10,27 @@
   export let timestamp: Date;
   export let enrichment: EnrichmentMap | undefined = undefined;
 
-  function sailingKey({ scheduledDepart, depart }: Sailing) {
-    const key = scheduledDepart ?? depart;
-    return key instanceof Date ? key.toISOString() : key;
+  $: keyedSailings = buildKeyedSailings(route.sailings);
+
+  function sailingKey({ scheduledDepart, depart, vessel }: Sailing) {
+    const time = scheduledDepart ?? depart;
+    const iso = time instanceof Date ? time.toISOString() : time;
+    return `${iso}|${vessel?.name ?? ''}`;
+  }
+
+  // Keys must be unique or the keyed each throws mid-navigation (which also
+  // wedges the route change). Upstream matching bugs have produced two
+  // sailings sharing a scheduledDepart, so uniquify any residual collision
+  // rather than crash — colliding rows are pathological data, not real
+  // distinct sailings we need stable identity for.
+  function buildKeyedSailings(sailings: Sailing[]) {
+    const seen = new Map<string, number>();
+    return sailings.map((sailing) => {
+      const base = sailingKey(sailing);
+      const count = seen.get(base) ?? 0;
+      seen.set(base, count + 1);
+      return { key: count === 0 ? base : `${base}#${count}`, sailing };
+    });
   }
 
   function enrichmentFor(sailing: Sailing) {
@@ -26,7 +44,7 @@
 {#if route.sailings.length > 0}
   <div class="flex h-full flex-col items-center overflow-y-auto">
     <Accordion.Root class="my-0.5 w-full space-y-3">
-      {#each route.sailings as sailing (sailingKey(sailing))}
+      {#each keyedSailings as { key, sailing } (key)}
         <TerminalSailingItem
           {sailing}
           duration={route.duration}

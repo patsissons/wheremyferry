@@ -91,9 +91,12 @@ export function buildScheduledList(dailySchedule: DailySchedule | null | undefin
  * any dailySchedule entry (e.g. cancellations, off-schedule special sailings,
  * or when scrapemyferry's scrape failed).
  *
- * Greedy claim-once matching: each dailySchedule entry can only be assigned
- * to one live sailing, so two sailings can't both claim the same scheduled
- * slot.
+ * Claim-once matching in two passes: each dailySchedule entry can only be
+ * assigned to one live sailing, and sailings departing exactly on a scheduled
+ * time claim their slot first. Without the exact-first pass, a delayed
+ * earlier sailing could steal a later sailing's exact slot, leaving the
+ * on-time sailing to key by its own depart — the same value the thief now
+ * carries as scheduledDepart (duplicate keys in the sailings keyed each).
  */
 export function applyScheduleOverride(
   route: Route | undefined,
@@ -102,8 +105,18 @@ export function applyScheduleOverride(
   if (!route || scheduledList.length === 0) return route;
 
   const remaining = scheduledList.map((d) => d.getTime());
-  const sailings: Sailing[] = route.sailings.map((sailing) => {
-    if (!(sailing.depart instanceof Date)) return sailing;
+  const assigned = new Map<number, number>();
+
+  route.sailings.forEach((sailing, idx) => {
+    if (!(sailing.depart instanceof Date)) return;
+    const i = remaining.indexOf(sailing.depart.getTime());
+    if (i < 0) return;
+    assigned.set(idx, remaining.splice(i, 1)[0]);
+  });
+
+  route.sailings.forEach((sailing, idx) => {
+    if (assigned.has(idx)) return;
+    if (!(sailing.depart instanceof Date)) return;
     const departMs = sailing.depart.getTime();
 
     let bestIdx = -1;
@@ -117,8 +130,15 @@ export function applyScheduleOverride(
       }
     }
 
-    if (bestIdx < 0) return sailing;
-    const scheduledMs = remaining.splice(bestIdx, 1)[0];
+    if (bestIdx < 0) return;
+    assigned.set(idx, remaining.splice(bestIdx, 1)[0]);
+  });
+
+  if (assigned.size === 0) return route;
+
+  const sailings: Sailing[] = route.sailings.map((sailing, idx) => {
+    const scheduledMs = assigned.get(idx);
+    if (scheduledMs === undefined) return sailing;
     return { ...sailing, scheduledDepart: new Date(scheduledMs) };
   });
 
@@ -165,6 +185,8 @@ export function injectMissingSailings(
     const scheduled = parseWallClockTime(entry.depart);
     if (!scheduled) continue;
     if (presentScheduledMs.has(scheduled.getTime())) continue;
+    // claim the slot so a duplicated dailySchedule row can't inject twice
+    presentScheduledMs.add(scheduled.getTime());
 
     const arriveScheduled = parseWallClockTime(entry.arrive);
     const arrivedEntry = arrivedByScheduled.get(entry.depart);
@@ -273,15 +295,13 @@ export function findPreviousSailingsFromScrape(
       const duration = durationByScheduled.get(entry.scheduled) ?? src.duration;
       // Project arrive from depart + scheduled duration when the API hasn't
       // recorded an actual arrival yet (vessel still underway).
-      const arrive =
-        arrived ?? (duration > 0 ? new Date(departMs + duration * 1000) : undefined);
+      const arrive = arrived ?? (duration > 0 ? new Date(departMs + duration * 1000) : undefined);
       // 'arrivedUnderway' bundles both arrived AND underway sailings. A blank
       // `arrived` is the clear "still in transit" signal, but BC Ferries
       // sometimes pre-fills the field with a projected arrival while the
       // vessel is still underway — so anything whose arrived time is still in
       // the future is treated as 'current' too.
-      const status: SailingStatus =
-        arrived && arrived.getTime() <= nowMs ? 'past' : 'current';
+      const status: SailingStatus = arrived && arrived.getTime() <= nowMs ? 'past' : 'current';
 
       const key = `${src.routeCode}|${entry.scheduled}`;
       seenKeys.add(key);

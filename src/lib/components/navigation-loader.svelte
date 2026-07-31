@@ -7,19 +7,33 @@
   // Warm-cache navigations resolve near-instantly; only surface the overlay
   // when the navigation outlives this delay so fast swaps don't flash.
   const showDelayMs = 150;
+  // If a render error aborts the navigation, the navigating store never
+  // resets and the overlay would sit on screen forever. Past this point the
+  // stale page is more useful than a spinner, so bail out.
+  const failsafeMs = 15_000;
 
   let show = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let showTimer: ReturnType<typeof setTimeout> | undefined;
+  let failsafeTimer: ReturnType<typeof setTimeout> | undefined;
 
-  $: if ($navigating) {
-    timer ??= setTimeout(() => (show = true), showDelayMs);
-  } else {
-    clearTimeout(timer);
-    timer = undefined;
+  $: $navigating ? arm() : reset();
+
+  function arm() {
+    reset();
+    showTimer = setTimeout(() => (show = true), showDelayMs);
+    failsafeTimer = setTimeout(() => {
+      console.warn('[navigation-loader] navigation never settled; hiding overlay');
+      show = false;
+    }, failsafeMs);
+  }
+
+  function reset() {
+    clearTimeout(showTimer);
+    clearTimeout(failsafeTimer);
     show = false;
   }
 
-  onDestroy(() => clearTimeout(timer));
+  onDestroy(reset);
 </script>
 
 {#if show}

@@ -1,4 +1,4 @@
-import { sourceForType, type Source } from 'scrapemyferry';
+import { sourceForType, type DailySchedule, type Source } from 'scrapemyferry';
 import type { StaticContext } from './types';
 
 const source = sourceForType('bcf') as Source;
@@ -28,6 +28,46 @@ async function cached<T>(key: string, ttl: number, fetcher: () => Promise<T>): P
     if (entry) return entry.value;
     return null;
   }
+}
+
+const PACIFIC_TZ = 'America/Vancouver';
+
+/**
+ * BC Ferries has no daily schedule page for some minor routes — e.g.
+ * routes-fares/schedules/daily/HSB-BOW redirects to the seasonal page — so
+ * the daily scrape parses zero rows. Fall back to synthesizing today's
+ * schedule from the seasonal page's per-weekday listing. Same midnight
+ * staleness window as the daily cache entry it replaces.
+ */
+async function loadDailySchedule(from: string, to: string): Promise<DailySchedule> {
+  const daily = await source.dailySchedule(from, to);
+  if (daily.sailings.length > 0) return daily;
+
+  const seasonal = await source.seasonalSchedule(from, to);
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    timeZone: PACIFIC_TZ,
+  }).format(new Date());
+  // seasonal day labels are pluralized ("Fridays")
+  const day = seasonal.days.find((d) => d.day.toLowerCase().startsWith(weekday.toLowerCase()));
+  if (!day) return daily;
+
+  return {
+    url: seasonal.url,
+    sailings: day.sailings.map(({ depart, arrive, duration, messages }) => ({
+      depart,
+      arrive,
+      duration: normalizeDuration(duration),
+      type: messages.join('; '),
+    })),
+  };
+}
+
+// seasonal pages report duration as "0h 20m"; daily pages use "0:20"
+function normalizeDuration(value: string): string {
+  const match = /^(\d+)h\s+(\d+)m$/.exec(value.trim());
+  if (!match) return value;
+  return `${match[1]}:${match[2].padStart(2, '0')}`;
 }
 
 const SLUG_RE = /^([A-Z]{3})([A-Z]{3})$/;
@@ -69,13 +109,13 @@ export async function loadStaticContext(slug?: string): Promise<StaticContext> {
       cached(`conditions:${to}-${from}`, TTL_MS.conditions, () =>
         source.currentConditionsBeta(to, from),
       ),
-      cached(`daily:${from}-${to}`, TTL_MS.dailySchedule, () => source.dailySchedule(from, to)),
+      cached(`daily:${from}-${to}`, TTL_MS.dailySchedule, () => loadDailySchedule(from, to)),
       // Reverse-leg dailySchedule lets us override scheduledDepart and
       // duration for previousSailings on the reverse route (the same vessel's
       // inbound trips). Without this, reverse-leg rows fall back to stored
       // localStorage data which is often contaminated by the live API's
       // windowed observation pattern.
-      cached(`daily:${to}-${from}`, TTL_MS.dailySchedule, () => source.dailySchedule(to, from)),
+      cached(`daily:${to}-${from}`, TTL_MS.dailySchedule, () => loadDailySchedule(to, from)),
     ]);
 
   return { routes, conditions, arrivalConditions, dailySchedule, reverseDailySchedule };

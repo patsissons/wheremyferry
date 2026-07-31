@@ -1,10 +1,7 @@
 import { isDev } from '$lib/env';
 import { vessels } from '$lib/data/vessels';
 
-import {
-  findPreviousSailingsFromScrape,
-  type PrevSailingScrapeSource,
-} from './schedule';
+import { findPreviousSailingsFromScrape, type PrevSailingScrapeSource } from './schedule';
 import type { Data, PreviousSailing, Route, Sailing, SailingStatus, Vessel } from './types';
 
 const STORAGE_VERSION = 1;
@@ -118,9 +115,7 @@ export function evictContaminatedRows(
       return false;
     }
 
-    const hasMatch = schedule.some(
-      (s) => Math.abs(s.getTime() - scheduledMs) <= matchWindowMs,
-    );
+    const hasMatch = schedule.some((s) => Math.abs(s.getTime() - scheduledMs) <= matchWindowMs);
     if (!hasMatch) mutated = true;
     return hasMatch;
   });
@@ -223,6 +218,7 @@ function findMatch(
   routeCode: string,
   depart: Date,
   claimed?: Set<string>,
+  exactOnly = false,
 ): StoredSailing | undefined {
   const departTime = depart.getTime();
   let best: StoredSailing | undefined;
@@ -234,6 +230,13 @@ function findMatch(
 
     const scheduled = new Date(row.scheduledDepart);
     if (!sameLocalDay(scheduled, depart)) continue;
+
+    if (exactOnly) {
+      // minute-clamped equality — stored rows from before parseTime zeroed
+      // subseconds can carry residual ms that raw comparison would miss
+      if (parseStoredDate(row.scheduledDepart).getTime() === departTime) return row;
+      continue;
+    }
 
     const delta = Math.abs(scheduled.getTime() - departTime);
     if (delta > HISTORY_CONFIG.matchWindowMs) continue;
@@ -247,19 +250,51 @@ function findMatch(
   return best;
 }
 
+/**
+ * Match each sailing (by index) to a stored row in two passes: sailings whose
+ * depart exactly equals a row's scheduledDepart claim their row first, then
+ * the rest match nearest-within-window. Single-pass greedy matching let a
+ * delayed sailing steal the row belonging to a sailing departing exactly at
+ * that scheduled time; the on-time sailing then fell back to keying by its
+ * own depart, colliding with the thief's scheduledDepart (duplicate keys in
+ * the sailings keyed each).
+ */
+function matchSailingsToRows(
+  sailings: Sailing[],
+  rows: StoredSailing[],
+  routeCode: string,
+): Map<number, StoredSailing> {
+  const claimed = new Set<string>();
+  const matches = new Map<number, StoredSailing>();
+
+  for (const exactOnly of [true, false]) {
+    sailings.forEach((sailing, idx) => {
+      if (matches.has(idx)) return;
+      if (!(sailing.depart instanceof Date)) return;
+      const match = findMatch(rows, routeCode, sailing.depart, claimed, exactOnly);
+      if (!match) return;
+      claimed.add(match.scheduledDepart);
+      matches.set(idx, match);
+    });
+  }
+
+  return matches;
+}
+
 export function upsertFromApi(state: HistoryState, data: Data, now: Date): HistoryState {
   const nowIso = now.toISOString();
   const rows = state.sailings.map((row) => ({ ...row }));
 
   for (const route of data.routes.values()) {
-    // greedy claim per route — prevents two API sailings from both binding to
-    // the same stored row when the match window covers more than one sailing.
-    const claimed = new Set<string>();
+    // two-pass claim per route — prevents two API sailings from both binding
+    // to the same stored row, and stops a delayed sailing from stealing an
+    // on-time sailing's exact row.
+    const matches = matchSailingsToRows(route.sailings, rows, route.id);
 
-    for (const sailing of route.sailings) {
-      if (!(sailing.depart instanceof Date)) continue;
+    route.sailings.forEach((sailing, idx) => {
+      if (!(sailing.depart instanceof Date)) return;
 
-      const match = findMatch(rows, route.id, sailing.depart, claimed);
+      const match = matches.get(idx);
 
       // Only upsert from sailings that haven't departed yet. Once a sailing
       // is current/past, scrapemyferry's currentConditionsBeta has more
@@ -269,25 +304,21 @@ export function upsertFromApi(state: HistoryState, data: Data, now: Date): Histo
       // on existing rows so they don't get pruned out from under us during
       // the 24h window.
       if (sailing.status !== 'future') {
-        if (match) {
-          claimed.add(match.scheduledDepart);
-          match.lastSeenAt = nowIso;
-        }
-        continue;
+        if (match) match.lastSeenAt = nowIso;
+        return;
       }
 
       const departIso = sailing.depart.toISOString();
       const arriveIso = sailing.arrive instanceof Date ? sailing.arrive.toISOString() : undefined;
 
       if (match) {
-        claimed.add(match.scheduledDepart);
         match.latestDepart = departIso;
         match.latestArrive = arriveIso;
         match.vesselName = sailing.vessel?.name ?? match.vesselName;
         match.lastStatus = sailing.status ?? match.lastStatus;
         match.lastSeenAt = nowIso;
       } else {
-        const fresh: StoredSailing = {
+        rows.push({
           routeCode: route.id,
           scheduledDepart: departIso,
           latestDepart: departIso,
@@ -296,11 +327,9 @@ export function upsertFromApi(state: HistoryState, data: Data, now: Date): Histo
           lastStatus: sailing.status,
           firstSeenAt: nowIso,
           lastSeenAt: nowIso,
-        };
-        rows.push(fresh);
-        claimed.add(fresh.scheduledDepart);
+        });
       }
-    }
+    });
   }
 
   return { version: STORAGE_VERSION, updatedAt: nowIso, sailings: rows };
@@ -325,7 +354,8 @@ function buildPreviousSailing(row: StoredSailing, routes: Map<string, Route>): P
   // arrival delta, which is the best signal we have for "how late did this
   // inbound trip actually run". Skipped when duration is 0 because the
   // projection would degenerate to arrive = depart and produce noisy badges.
-  const arrive = actualArrive ?? (duration > 0 ? new Date(depart.getTime() + duration * 1000) : undefined);
+  const arrive =
+    actualArrive ?? (duration > 0 ? new Date(depart.getTime() + duration * 1000) : undefined);
 
   return {
     routeCode: row.routeCode,
@@ -462,17 +492,17 @@ export function mergeWithHistory(state: HistoryState, data: Data, now: Date): Da
   const nowMs = now.getTime();
 
   for (const [id, route] of data.routes) {
-    const matchedScheduled = new Set<string>();
     // mergeWithHistory only handles scheduledDepart enrichment + transitional
     // 'departing' injection. previousSailings attachment is deferred to a
     // page-level pass (attachPreviousSailingsToRoute) so it can prefer
     // scrapemyferry's authoritative arrivedUnderway data over the
     // localStorage history.
-    const enhanced = route.sailings.map((sailing) => {
-      if (!(sailing.depart instanceof Date)) return sailing;
-      const match = findMatch(state.sailings, route.id, sailing.depart, matchedScheduled);
+    const matches = matchSailingsToRows(route.sailings, state.sailings, route.id);
+    const matchedScheduled = new Set<string>();
+    for (const match of matches.values()) matchedScheduled.add(match.scheduledDepart);
+    const enhanced = route.sailings.map((sailing, idx) => {
+      const match = matches.get(idx);
       if (!match) return sailing;
-      matchedScheduled.add(match.scheduledDepart);
       return { ...sailing, scheduledDepart: parseStoredDate(match.scheduledDepart) };
     });
 
