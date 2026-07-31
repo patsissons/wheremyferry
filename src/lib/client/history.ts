@@ -390,6 +390,20 @@ function findPreviousVesselSailings(
     .map((row) => buildPreviousSailing(row, routes));
 }
 
+/**
+ * Anchor the "previous sailings" cutoff at the scheduled time when a sailing
+ * ran late. A stale conditions snapshot can still list the sailing itself in
+ * `upcoming` under its scheduled time; anchoring at the actual (later) depart
+ * would let the sailing match itself as its own previous trip.
+ */
+function previousSailingCutoffMs(
+  depart: Date,
+  scheduledDepart: Sailing['scheduledDepart'],
+): number {
+  const departMs = depart.getTime();
+  return scheduledDepart instanceof Date ? Math.min(scheduledDepart.getTime(), departMs) : departMs;
+}
+
 export function attachPreviousSailings<T extends Sailing>(
   sailing: T,
   state: HistoryState,
@@ -401,7 +415,7 @@ export function attachPreviousSailings<T extends Sailing>(
   const previousSailings = findPreviousVesselSailings(
     state.sailings,
     vesselName,
-    sailing.depart.getTime(),
+    previousSailingCutoffMs(sailing.depart, sailing.scheduledDepart),
     routes,
   );
   if (previousSailings.length === 0) return sailing;
@@ -434,23 +448,16 @@ export function attachPreviousSailingsToRoute(
     if (!vesselName) return sailing;
     if (!(sailing.depart instanceof Date)) return sailing;
 
+    const beforeMs = previousSailingCutoffMs(sailing.depart, sailing.scheduledDepart);
+
     let previousSailings: PreviousSailing[] = [];
     if (hasScrape) {
-      previousSailings = findPreviousSailingsFromScrape(
-        vesselName,
-        sailing.depart.getTime(),
-        scrapeSources!,
-      );
+      previousSailings = findPreviousSailingsFromScrape(vesselName, beforeMs, scrapeSources!);
     }
 
     // Fallback to localStorage only when scrape gave us nothing.
     if (previousSailings.length === 0 && hasFallback) {
-      previousSailings = findPreviousVesselSailings(
-        state!.sailings,
-        vesselName,
-        sailing.depart.getTime(),
-        routes,
-      );
+      previousSailings = findPreviousVesselSailings(state!.sailings, vesselName, beforeMs, routes);
       // For fallback rows, override scheduledDepart from authoritative
       // dailySchedule when available — stored value may be contaminated.
       if (previousSailings.length > 0 && scheduledListByRoute?.size) {

@@ -110,11 +110,13 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
   }
 
   function transformRoute(routeData: RouteData, timestamp: Date): Route {
+    const duration = parseDuration(routeData.sailingDuration);
+
     return {
       id: routeData.routeCode,
       from: routeData.fromTerminalCode,
       to: routeData.toTerminalCode,
-      duration: parseDuration(routeData.sailingDuration),
+      duration,
       sailings: routeData.sailings.reduce((array, sailingData) => {
         const sailing = transformSailing(sailingData, timestamp, array.at(-1));
         return sailing ? array.concat(sailing) : array;
@@ -175,11 +177,29 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
           fill,
           carFill,
           oversizeFill,
-          status: sailingStatus,
+          status: correctPastStatus(sailingStatus),
         } as CapacitySailing;
       }
 
       return { ...sailing, status: inferStatus() };
+
+      // The BC Ferries API flags exactly one sailing per route as 'current',
+      // so when a delayed crossing is still underway as the next one departs,
+      // the just-departed sailing gets labelled 'past'. A 'past' sailing
+      // whose (projected) arrival is still ahead of the data timestamp is
+      // really still underway.
+      function correctPastStatus(status: SailingStatus): SailingStatus {
+        if (status !== 'past') return status;
+        if (!(sailing.depart instanceof Date)) return status;
+        const arriveMs =
+          sailing.arrive instanceof Date
+            ? sailing.arrive.getTime()
+            : duration > 0
+              ? sailing.depart.getTime() + duration * 1000
+              : undefined;
+        if (arriveMs === undefined || arriveMs <= timestamp.getTime()) return status;
+        return 'current';
+      }
 
       function inferStatus(): SailingStatus | undefined {
         if (sailing.depart instanceof Date) {

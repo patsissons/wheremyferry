@@ -198,15 +198,19 @@ export function injectMissingSailings(
     let status: SailingStatus | undefined;
 
     if (arrivedEntry) {
+      const arrived = arrivedEntry.arrived ? parseWallClockTime(arrivedEntry.arrived) : undefined;
       depart = parseWallClockTime(arrivedEntry.departed) ?? scheduled;
-      arrive = parseWallClockTime(arrivedEntry.arrived) ?? arriveScheduled;
+      arrive = arrived ?? arriveScheduled;
       vessel = makeVessel(arrivedEntry.vessel?.name);
-      status = 'past';
+      // arrivedUnderway bundles arrived AND still-underway sailings (same
+      // rule as findPreviousSailingsFromScrape) — only an arrival that has
+      // actually elapsed makes the sailing 'past'.
+      status = arrived && arrived.getTime() <= nowMs ? 'past' : 'current';
     } else if (upcomingEntry) {
       depart = parseWallClockTime(upcomingEntry.etd) ?? scheduled;
       arrive = parseWallClockTime(upcomingEntry.eta) ?? arriveScheduled;
       vessel = makeVessel(upcomingEntry.vessel?.name);
-      status = 'future';
+      status = depart.getTime() > nowMs ? 'future' : 'current';
     } else {
       // no conditions enrichment — infer status from scheduled times alone
       if (scheduled.getTime() > nowMs) status = 'future';
@@ -287,8 +291,15 @@ export function findPreviousSailingsFromScrape(
       if (entry.vessel?.name !== vesselName) continue;
       const departed = parseWallClockTime(entry.departed);
       if (!departed) continue;
+      const key = `${src.routeCode}|${entry.scheduled}`;
       const departMs = departed.getTime();
-      if (departMs >= beforeMs || departMs < cutoffMs) continue;
+      if (departMs >= beforeMs || departMs < cutoffMs) {
+        // still mark it seen — a stale conditions snapshot can list this same
+        // sailing in `upcoming` under its scheduled time, and without the key
+        // the other loop would resurrect it as its own previous trip
+        seenKeys.add(key);
+        continue;
+      }
 
       const scheduled = parseWallClockTime(entry.scheduled);
       const arrived = entry.arrived ? parseWallClockTime(entry.arrived) : undefined;
@@ -303,7 +314,6 @@ export function findPreviousSailingsFromScrape(
       // the future is treated as 'current' too.
       const status: SailingStatus = arrived && arrived.getTime() <= nowMs ? 'past' : 'current';
 
-      const key = `${src.routeCode}|${entry.scheduled}`;
       seenKeys.add(key);
       candidates.push({
         prev: {
