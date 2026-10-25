@@ -46,9 +46,7 @@
           description,
           regions: sortRegions(
             groupByRegion(
-              Array.from(data.terminals.values()).filter(({ id }) =>
-                selectedTo.destinations.has(id),
-              ),
+              Array.from(data.terminals.values()).filter(({ id }) => selectedTo.origins.has(id)),
             ),
           ),
           selectedTerminal: selectedFrom,
