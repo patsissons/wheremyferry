@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
   import { poll, type Data } from '$lib/client';
   import { attachPreviousSailingsToRoute } from '$lib/client/history';
   import {
@@ -31,7 +30,7 @@
 
   let liveData: Data | undefined;
 
-  $: slug = $page.params.slug;
+  $: slug = data.slug;
   // scrapemyferry's published dailySchedule is the authoritative source for
   // scheduledDepart — recomputed once when SSR data refreshes, then applied
   // to every live update. Both forward and reverse direction lists feed the

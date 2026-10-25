@@ -2,6 +2,7 @@
   import ChevronDownIcon from '~icons/ion/chevron-down';
   import SwapVerticalIcon from '~icons/ion/swap-vertical';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { TerminalSelector } from '$lib/components/terminal-selector';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Drawer from '$lib/components/ui/drawer';
@@ -18,20 +19,33 @@
   let selectedFrom: Terminal | undefined;
   let selectedTo: Terminal | undefined;
   let openMode: OpenMode;
+  let syncedRouteId: string | undefined;
 
+  // must be declared before anything that reads selectedFrom/selectedTo since
+  // svelte can't see the assignments inside syncFromRoute to order it first
+  $: syncFromRoute(selectedRoute);
   $: canSwap = canSwapTerminals(selectedFrom, selectedTo);
-  $: updateUrl(selectedFrom, selectedTo);
-  $: if (selectedRoute) {
-    selectedFrom = data.terminals.get(selectedRoute.from);
-    selectedTo = data.terminals.get(selectedRoute.to);
+
+  // only adopt the route's terminals when the route itself changes. the page
+  // hands us a fresh route object on every poll, and re-syncing on each of
+  // those would clobber a selection the user is in the middle of making.
+  function syncFromRoute(route?: Route) {
+    if (!route) {
+      syncedRouteId = undefined;
+      return;
+    }
+    if (route.id === syncedRouteId) return;
+
+    syncedRouteId = route.id;
+    selectedFrom = data.terminals.get(route.from);
+    selectedTo = data.terminals.get(route.to);
   }
 
-  function updateUrl(selectedFrom?: Terminal, selectedTo?: Terminal) {
-    if (selectedFrom && selectedTo) {
-      goto(`/${selectedFrom.id}${selectedTo.id}`);
-    } else {
-      goto('/');
-    }
+  // navigation is driven explicitly by user selection (not reactively) so
+  // that route syncing can never feed back into another navigation
+  function updateUrl() {
+    const path = selectedFrom && selectedTo ? `/${selectedFrom.id}${selectedTo.id}` : '/';
+    if (path !== $page.url.pathname) goto(path);
   }
 
   function terminalRegions(selectedFrom?: Terminal, selectedTo?: Terminal) {
@@ -59,7 +73,8 @@
   }
 
   function canSwapTerminals(selectedFrom?: Terminal, selectedTo?: Terminal) {
-    if (selectedFrom && !selectedTo) return data.arrivals.has(selectedFrom.id);
+    if (selectedFrom && selectedTo) return data.routes.has(`${selectedTo.id}${selectedFrom.id}`);
+    if (selectedFrom) return data.arrivals.has(selectedFrom.id);
     if (selectedTo) return data.departures.has(selectedTo.id);
 
     return false;
@@ -69,6 +84,7 @@
     const terminal = selectedFrom;
     selectedFrom = selectedTo;
     selectedTo = terminal;
+    updateUrl();
   }
 
   function openFrom() {
@@ -92,13 +108,14 @@
       case 'to':
         {
           selectedTo = terminal;
-          if (selectedFrom && !terminal.destinations.has(selectedFrom.id)) {
+          if (selectedFrom && !terminal.origins.has(selectedFrom.id)) {
             selectedFrom = undefined;
           }
         }
         break;
     }
     openMode = undefined;
+    updateUrl();
   }
 </script>
 

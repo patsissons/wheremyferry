@@ -172,7 +172,10 @@ export interface Region extends StaticRegionData {
 
 export interface Terminal extends StaticTerminalData {
   id: string;
+  // terminals this one sails to
   destinations: Set<string>;
+  // terminals that sail to this one
+  origins: Set<string>;
   region: string;
 }
 

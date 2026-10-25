@@ -39,27 +39,13 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
       const route = transformRoute(routeData, timestamp);
       data.routes.set(route.id, route);
 
-      let fromTerminal = data.terminals.get(route.from);
-      if (!fromTerminal) {
-        fromTerminal = {
-          ...loadTerminal(route.from),
-          destinations: new Set([route.to]),
-        };
-        data.terminals.set(fromTerminal.id, fromTerminal);
-      } else {
-        fromTerminal.destinations.add(route.to);
-      }
+      // routes are directional (e.g. PLHSWB exists without SWBPLH), so only
+      // record the direction that actually sails
+      const fromTerminal = getTerminal(data.terminals, route.from);
+      fromTerminal.destinations.add(route.to);
 
-      let toTerminal = data.terminals.get(route.to);
-      if (!toTerminal) {
-        toTerminal = {
-          ...loadTerminal(route.to),
-          destinations: new Set([route.from]),
-        };
-        data.terminals.set(toTerminal.id, toTerminal);
-      } else {
-        toTerminal.destinations.add(route.from);
-      }
+      const toTerminal = getTerminal(data.terminals, route.to);
+      toTerminal.origins.add(route.from);
 
       data.departures.add(fromTerminal.id);
       data.arrivals.add(toTerminal.id);
@@ -88,7 +74,21 @@ export function transformRoutes(routesData: RouteData[], timestampData: number):
     arrivalRegions: groupByRegion(arrivalTerminals),
   };
 
-  function loadTerminal(id: string): Omit<Terminal, 'destinations'> {
+  function getTerminal(terminals: Map<string, Terminal>, id: string) {
+    let terminal = terminals.get(id);
+    if (!terminal) {
+      terminal = {
+        ...loadTerminal(id),
+        destinations: new Set(),
+        origins: new Set(),
+      };
+      terminals.set(id, terminal);
+    }
+
+    return terminal;
+  }
+
+  function loadTerminal(id: string): Omit<Terminal, 'destinations' | 'origins'> {
     const terminal = terminals[id];
     if (!terminal) {
       return {
